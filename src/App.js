@@ -344,36 +344,114 @@ async function processBiometric(file, mode) {
         return out;
       }
 
-      // Canal vert inversé : vaisseaux rouges sombres → hauts
+      // ── Signal : canal vert inversé (rétine) / niveaux de gris inversés (empreinte) ──
       const signal = new Float32Array(W*H);
       for(let i=0;i<W*H;i++) {
         if(mode==="retine") signal[i] = 1.0 - raw[i*4+1]/255.0;
         else { const g=(raw[i*4]*0.299+raw[i*4+1]*0.587+raw[i*4+2]*0.114)/255.0; signal[i]=1.0-g; }
       }
 
-      // DoG multi-échelle
-      const vessel = new Float32Array(W*H);
-      const sigmas = mode==="retine" ? [1,1.5,2,3,4] : [0.5,1,1.5,2];
-      for(const s of sigmas) {
-        const b1=gauss(signal,s), b2=gauss(signal,s*1.6);
-        for(let i=0;i<W*H;i++){const r=Math.max(0,b1[i]-b2[i]*0.75);if(r>vessel[i])vessel[i]=r;}
-      }
+      let clean = new Uint8Array(W*H);
 
-      const sorted=Float32Array.from(vessel).sort();
-      const pct = mode==="retine" ? 0.70 : 0.65;
-      const thresh=sorted[Math.floor(W*H*pct)];
+      if (mode === "retine") {
+        // ── 1. Masque du champ de vision (FOV) : on isole le disque oculaire ──────
+        // Pixels clairs = intérieur de l'œil ; on érode pour retirer l'anneau du bord.
+        const fov0 = new Uint8Array(W*H);
+        for(let i=0;i<W*H;i++) fov0[i] = ((raw[i*4]+raw[i*4+1]+raw[i*4+2])/3) > 18 ? 1 : 0;
+        const erode = (m, r) => {
+          const t=new Uint8Array(W*H), o=new Uint8Array(W*H);
+          for(let y=0;y<H;y++) for(let x=0;x<W;x++){let v=1;for(let k=-r;k<=r;k++){const xx=Math.min(Math.max(x+k,0),W-1);if(!m[y*W+xx]){v=0;break;}}t[y*W+x]=v;}
+          for(let y=0;y<H;y++) for(let x=0;x<W;x++){let v=1;for(let k=-r;k<=r;k++){const yy=Math.min(Math.max(y+k,0),H-1);if(!t[yy*W+x]){v=0;break;}}o[y*W+x]=v;}
+          return o;
+        };
+        const fov = erode(fov0, 8);
 
-      const mask=new Uint8Array(W*H);
-      for(let i=0;i<W*H;i++){
-        const isBlack=(raw[i*4]+raw[i*4+1]+raw[i*4+2])<15;
-        mask[i]=(vessel[i]>=thresh&&!isBlack)?1:0;
-      }
+        // ── 2. Correction d'illumination : on retire le fond (grand flou) ──────────
+        const bg = gauss(signal, 18);
+        const corr = new Float32Array(W*H);
+        for(let i=0;i<W*H;i++) corr[i] = fov[i] ? Math.max(0, signal[i]-bg[i]) : 0;
 
-      const clean=new Uint8Array(W*H);
-      for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
-        if(!mask[y*W+x]) continue;
-        const nb=mask[(y-1)*W+x]+mask[(y+1)*W+x]+mask[y*W+(x-1)]+mask[y*W+(x+1)]+mask[(y-1)*W+(x-1)]+mask[(y-1)*W+(x+1)]+mask[(y+1)*W+(x-1)]+mask[(y+1)*W+(x+1)];
-        if(nb>=2) clean[y*W+x]=1;
+        // ── 3. Vesselness de Frangi : ne réagit qu'aux structures tubulaires ───────
+        // (vaisseaux) — pas aux taches/blobs (disque optique) ni au bruit ponctuel.
+        const vessel = new Float32Array(W*H);
+        const scales = [1, 1.5, 2, 3, 4];
+        const beta2 = 2*0.5*0.5;                 // β = 0.5 (pénalise la "blobness")
+        for (const s of scales) {
+          const g = gauss(corr, s);
+          const s2 = s*s;                        // normalisation d'échelle
+          const Rb = new Float32Array(W*H);
+          const Sv = new Float32Array(W*H);
+          let Smax = 1e-6;
+          for (let y=1;y<H-1;y++) for (let x=1;x<W-1;x++){
+            const i=y*W+x;
+            const dxx=(g[i+1]-2*g[i]+g[i-1])*s2;
+            const dyy=(g[i+W]-2*g[i]+g[i-W])*s2;
+            const dxy=(g[i+W+1]-g[i+W-1]-g[i-W+1]+g[i-W-1])*0.25*s2;
+            const tmp=Math.sqrt((dxx-dyy)*(dxx-dyy)+4*dxy*dxy);
+            let l1=(dxx+dyy+tmp)/2, l2=(dxx+dyy-tmp)/2;
+            if (Math.abs(l1)>Math.abs(l2)){ const t=l1;l1=l2;l2=t; }   // |l1| ≤ |l2|
+            if (l2>=0) continue;                  // vaisseau clair attendu ⇒ l2 < 0
+            const S=Math.sqrt(l1*l1+l2*l2);
+            Rb[i]=l1/l2; Sv[i]=S;
+            if (S>Smax) Smax=S;
+          }
+          const c2 = 2*(0.5*Smax)*(0.5*Smax);     // demi-structureness max
+          for (let i=0;i<W*H;i++){
+            if (Sv[i]<=0) continue;
+            const v = Math.exp(-(Rb[i]*Rb[i])/beta2) * (1 - Math.exp(-(Sv[i]*Sv[i])/c2));
+            if (v>vessel[i]) vessel[i]=v;
+          }
+        }
+        for(let i=0;i<W*H;i++) if(!fov[i]) vessel[i]=0;
+
+        // ── 4. Seuillage : percentile calculé sur le FOV uniquement ───────────────
+        const vals=[];
+        for(let i=0;i<W*H;i++) if(fov[i] && vessel[i]>0) vals.push(vessel[i]);
+        vals.sort((a,b)=>a-b);
+        const keep = 0.13;                        // ~13 % du FOV (densité typique des vaisseaux)
+        const thr = vals.length ? vals[Math.floor(vals.length*(1-keep))] : Infinity;
+        const mask=new Uint8Array(W*H);
+        for(let i=0;i<W*H;i++) mask[i] = (fov[i] && vessel[i]>=thr && vessel[i]>0) ? 1 : 0;
+
+        // ── 5. Nettoyage : suppression des petits amas isolés (bruit résiduel) ────
+        const seen=new Uint8Array(W*H);
+        const stack=new Int32Array(W*H);
+        const minArea=20;
+        for(let i=0;i<W*H;i++){
+          if(!mask[i]||seen[i]) continue;
+          let sp=0; const comp=[]; stack[sp++]=i; seen[i]=1;
+          while(sp>0){
+            const p=stack[--sp]; comp.push(p);
+            const px=p%W, py=(p-px)/W;
+            for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+              if(!dx&&!dy) continue;
+              const nx=px+dx, ny=py+dy;
+              if(nx<0||ny<0||nx>=W||ny>=H) continue;
+              const np=ny*W+nx;
+              if(mask[np]&&!seen[np]){ seen[np]=1; stack[sp++]=np; }
+            }
+          }
+          if(comp.length>=minArea) for(const p of comp) clean[p]=1;
+        }
+      } else {
+        // ── Empreinte : DoG multi-échelle (adapté aux crêtes digitales) ───────────
+        const vessel = new Float32Array(W*H);
+        for(const s of [0.5,1,1.5,2]) {
+          const b1=gauss(signal,s), b2=gauss(signal,s*1.6);
+          for(let i=0;i<W*H;i++){const r=Math.max(0,b1[i]-b2[i]*0.75);if(r>vessel[i])vessel[i]=r;}
+        }
+        const sorted=Float32Array.from(vessel).sort();
+        const thresh=sorted[Math.floor(W*H*0.65)];
+        const mask=new Uint8Array(W*H);
+        for(let i=0;i<W*H;i++){
+          const isBlack=(raw[i*4]+raw[i*4+1]+raw[i*4+2])<15;
+          mask[i]=(vessel[i]>=thresh&&!isBlack)?1:0;
+        }
+        for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+          if(!mask[y*W+x]) continue;
+          const nb=mask[(y-1)*W+x]+mask[(y+1)*W+x]+mask[y*W+(x-1)]+mask[y*W+(x+1)]+mask[(y-1)*W+(x-1)]+mask[(y-1)*W+(x+1)]+mask[(y+1)*W+(x-1)]+mask[(y+1)*W+(x+1)];
+          if(nb>=2) clean[y*W+x]=1;
+        }
       }
 
       const maskCanvas=document.createElement("canvas");
