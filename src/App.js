@@ -308,6 +308,15 @@ function normalizeVector(v) {
   return v.map(x=>x/norm);
 }
 
+// Deux vecteurs biométriques sont identiques (à 4 décimales près)
+function vectorsMatch(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (Number(a[i]).toFixed(4) !== Number(b[i]).toFixed(4)) return false;
+  }
+  return true;
+}
+
 // ─── Segmentation biométrique ────────────────────────────────────────────────
 async function processBiometric(file, mode) {
   return new Promise((resolve, reject) => {
@@ -626,16 +635,40 @@ function LoginPage({ onLogin, users, onRegister }) {
   const [err, setErr]     = useState("");
   const [tab, setTab]     = useState("Administrateur");
   const [view, setView]   = useState("login");
+  const [retineFile, setRetineFile] = useState(null);
+  const [loading, setLoading]       = useState(false);
+  const retineRef = useRef();
   const IsAdmin = tab === "Administrateur";
 
   if (view==="register-Administrateur") return <RegisterPage role="Administrateur" onBack={()=>setView("login")} onRegister={u=>{onRegister(u);setView("login");}} />;
   if (view==="register-client")  return <RegisterPage role="client"  onBack={()=>setView("login")} onRegister={u=>{onRegister(u);setView("login");}} />;
 
-  const login = () => {
+  const login = async () => {
     const u = users[username];
     if (!u || u.password!==password) { setErr("Identifiants incorrects."); return; }
     if (u.role!==tab) { setErr(`Ce compte est de type "${u.role==="Administrateur"?"Administrateur":"Utilisateur"}". Changez d'onglet.`); return; }
     if (u.pendingValidation) { setErr("Compte en attente de validation médicale (24–48h)."); return; }
+
+    // Vérification biométrique : la rétine doit correspondre à celle enrôlée par l'admin
+    if (u.role === "client") {
+      if (!u.retineVector) { setErr("Aucune rétine enrôlée pour ce compte. Contactez votre administrateur."); return; }
+      if (!retineFile)     { setErr("Importez votre image rétinienne pour vous authentifier."); return; }
+      setLoading(true); setErr("");
+      try {
+        const res = await processBiometric(retineFile, "retine");
+        if (!vectorsMatch(res.optimizedArray, u.retineVector)) {
+          setLoading(false);
+          setErr("Rétine non reconnue — accès refusé.");
+          return;
+        }
+      } catch(e) {
+        setLoading(false);
+        setErr(`Erreur lors de l'analyse rétinienne : ${e.message}`);
+        return;
+      }
+      setLoading(false);
+    }
+
     setErr(""); onLogin({username,...u});
   };
 
@@ -676,8 +709,25 @@ function LoginPage({ onLogin, users, onRegister }) {
           <label style={base.label}>Mot de passe</label>
           <input style={base.input} type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login()} />
 
-          <button style={{ ...mkBtn("primary", IsAdmin?C.primary:C.accent), width:"100%", padding:"13px", fontSize:15, marginBottom:12 }} onClick={login}>Se connecter
+          {!IsAdmin && (
+            <>
+              <label style={base.label}>Authentification rétinienne *</label>
+              <input ref={retineRef} type="file" accept=".png,.jpg,.jpeg,.bmp" style={{ display:"none" }}
+                onChange={e=>setRetineFile(e.target.files[0]||null)} />
+              <div onClick={()=>retineRef.current.click()}
+                style={{ border:`2px dashed ${retineFile?C.success:C.border}`, borderRadius:10, padding:"16px", textAlign:"center", cursor:"pointer", background:retineFile?C.successBg:C.bg, marginBottom:16, transition:"all 0.15s" }}>
+                {retineFile
+                  ? <><div style={{ fontSize:20 }}>✅</div><div style={{ color:C.success, fontSize:13, fontWeight:700 }}>{retineFile.name}</div></>
+                  : <><div style={{ fontSize:24 }}>👁️</div><div style={{ color:C.accent, fontSize:13 }}>Importer votre image rétinienne</div><div style={{ color:C.muted, fontSize:11 }}>PNG, JPG, BMP</div></>
+                }
+              </div>
+            </>
+          )}
+
+          <button style={{ ...mkBtn("primary", IsAdmin?C.primary:C.accent), width:"100%", padding:"13px", fontSize:15, marginBottom:12, opacity:loading?0.6:1 }} onClick={login} disabled={loading}>
+            {loading ? <><span style={{ animation:"spin 1s linear infinite", display:"inline-block" }}>⟳</span>&nbsp;Vérification de la rétine...</> : "Se connecter"}
           </button>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
           {err && <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}30`, borderRadius:8, padding:"10px 14px", marginBottom:12, fontSize:13 }}>⚠ {err}</div>}
 
           <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14, marginTop:4 }}>
@@ -697,10 +747,10 @@ function LoginPage({ onLogin, users, onRegister }) {
           </div>
 
           <div style={{ marginTop:14, padding:"12px 14px", background:C.bg, borderRadius:10, border:`1px solid ${C.border}`, fontSize:12 }}>
-            <div style={{ fontWeight:700, color:C.sub, marginBottom:6 }}>Comptes de démo</div>
+            <div style={{ fontWeight:700, color:C.sub, marginBottom:6 }}>{IsAdmin ? "Comptes de démo" : "Pour tester un accès utilisateur"}</div>
             {IsAdmin
               ? <><div style={{ color:C.muted }}>👨‍⚕️ <code>admin</code> / <code>admin123</code></div><div style={{ color:C.muted, marginTop:3 }}>👨‍⚕️ <code>Administrateur</code> / <code>abcd</code></div></>
-              : <><div style={{ color:C.muted }}>🧑 <code>Utilisateur1</code> / <code>pass1</code></div><div style={{ color:C.muted, marginTop:3 }}>🧑 <code>Utilisateur2</code> / <code>pass2</code></div></>
+              : <div style={{ color:C.muted, lineHeight:1.6 }}>Connectez-vous en admin, créez un utilisateur avec son image de rétine, puis revenez ici et importez <strong>la même image</strong> pour obtenir l'accès.</div>
             }
           </div>
         </div>
@@ -1481,7 +1531,7 @@ function CreateUserPanel({ users, onCreateUser, database, setDatabase, accentCol
     const fullName = `${form.prenom.trim()} ${form.nom.trim()}`;
     const username = form.username.trim();
 
-    // 1. Compte de connexion
+    // 1. Compte de connexion (avec vecteurs biométriques attachés pour l'auth au login)
     onCreateUser({
       username,
       password: form.password,
@@ -1489,6 +1539,9 @@ function CreateUserPanel({ users, onCreateUser, database, setDatabase, accentCol
       name: fullName,
       email: form.email.trim(),
       validated: true,
+      retineVector: bio.retine.optimizedArray,
+      empreinteVector: bio.empreinte?.optimizedArray || null,
+      hasEmpreinte: !!bio.empreinte,
     });
 
     // 2. Enrôlement biométrique (rétine obligatoire + empreinte optionnelle)
