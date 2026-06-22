@@ -319,195 +319,1014 @@ function vectorsMatch(a, b) {
 
 // ─── Segmentation biométrique ────────────────────────────────────────────────
 async function processBiometric(file, mode) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const W = 512, H = 512;
+return new Promise((resolve, reject) => {
+const img = new Image();
+const url = URL.createObjectURL(file);
 
-      const origCanvas = document.createElement("canvas");
-      origCanvas.width = W; origCanvas.height = H;
-      const oCtx = origCanvas.getContext("2d");
-      oCtx.fillStyle = "#000"; oCtx.fillRect(0,0,W,H);
-      oCtx.drawImage(img, 0, 0, W, H);
-      URL.revokeObjectURL(url);
-      const raw = oCtx.getImageData(0,0,W,H).data;
+```
+img.onload = () => {
+  try {
+    const W = 512;
+    const H = 512;
+    const N = W * H;
 
-      function gauss(src, sigma) {
-        const k=Math.ceil(sigma*3)*2+1, half=Math.floor(k/2);
-        const ker=new Float32Array(k); let ks=0;
-        for(let i=0;i<k;i++){ker[i]=Math.exp(-0.5*((i-half)/sigma)**2);ks+=ker[i];}
-        for(let i=0;i<k;i++) ker[i]/=ks;
-        const tmp=new Float32Array(W*H), out=new Float32Array(W*H);
-        for(let y=0;y<H;y++) for(let x=0;x<W;x++){let s=0;for(let ki=0;ki<k;ki++){const xi=Math.min(Math.max(x+ki-half,0),W-1);s+=src[y*W+xi]*ker[ki];}tmp[y*W+x]=s;}
-        for(let y=0;y<H;y++) for(let x=0;x<W;x++){let s=0;for(let ki=0;ki<k;ki++){const yi=Math.min(Math.max(y+ki-half,0),H-1);s+=tmp[yi*W+x]*ker[ki];}out[y*W+x]=s;}
-        return out;
+    const origCanvas = document.createElement("canvas");
+    origCanvas.width = W;
+    origCanvas.height = H;
+    const oCtx = origCanvas.getContext("2d", { willReadFrequently: true });
+    if (!oCtx) throw new Error("Canvas 2D indisponible.");
+
+    // Conserve les proportions de l'image au lieu de l'étirer.
+    oCtx.fillStyle = "#000";
+    oCtx.fillRect(0, 0, W, H);
+    oCtx.imageSmoothingEnabled = true;
+    oCtx.imageSmoothingQuality = "high";
+
+    const scale = Math.min(W / img.width, H / img.height);
+    const drawW = Math.max(1, Math.round(img.width * scale));
+    const drawH = Math.max(1, Math.round(img.height * scale));
+    const drawX = Math.floor((W - drawW) / 2);
+    const drawY = Math.floor((H - drawH) / 2);
+
+    oCtx.drawImage(img, drawX, drawY, drawW, drawH);
+    URL.revokeObjectURL(url);
+
+    const raw = oCtx.getImageData(0, 0, W, H).data;
+
+    const countMask = (mask) => {
+      let count = 0;
+      for (let i = 0; i < mask.length; i++) {
+        count += mask[i] ? 1 : 0;
+      }
+      return count;
+    };
+
+    const percentile = (values, q) => {
+      if (!values.length) return 0;
+
+      const sorted = Array.from(values).sort((a, b) => a - b);
+      const index = Math.min(
+        sorted.length - 1,
+        Math.max(0, Math.floor((sorted.length - 1) * q))
+      );
+
+      return sorted[index];
+    };
+
+    function gauss(src, sigma) {
+      const radius = Math.max(1, Math.ceil(sigma * 3));
+      const size = radius * 2 + 1;
+      const kernel = new Float32Array(size);
+      let kernelSum = 0;
+
+      for (let i = 0; i < size; i++) {
+        const x = i - radius;
+        const value = Math.exp(-(x * x) / (2 * sigma * sigma));
+        kernel[i] = value;
+        kernelSum += value;
       }
 
-      // ── Signal : canal vert inversé (rétine) / niveaux de gris inversés (empreinte) ──
-      const signal = new Float32Array(W*H);
-      for(let i=0;i<W*H;i++) {
-        if(mode==="retine") signal[i] = 1.0 - raw[i*4+1]/255.0;
-        else { const g=(raw[i*4]*0.299+raw[i*4+1]*0.587+raw[i*4+2]*0.114)/255.0; signal[i]=1.0-g; }
+      for (let i = 0; i < size; i++) {
+        kernel[i] /= kernelSum;
       }
 
-      let clean = new Uint8Array(W*H);
+      const tmp = new Float32Array(N);
+      const out = new Float32Array(N);
 
-      if (mode === "retine") {
-        // ── 1. Masque du champ de vision (FOV) : on isole le disque oculaire ──────
-        // Pixels clairs = intérieur de l'œil ; on érode pour retirer l'anneau du bord.
-        const fov0 = new Uint8Array(W*H);
-        for(let i=0;i<W*H;i++) fov0[i] = ((raw[i*4]+raw[i*4+1]+raw[i*4+2])/3) > 18 ? 1 : 0;
-        const erode = (m, r) => {
-          const t=new Uint8Array(W*H), o=new Uint8Array(W*H);
-          for(let y=0;y<H;y++) for(let x=0;x<W;x++){let v=1;for(let k=-r;k<=r;k++){const xx=Math.min(Math.max(x+k,0),W-1);if(!m[y*W+xx]){v=0;break;}}t[y*W+x]=v;}
-          for(let y=0;y<H;y++) for(let x=0;x<W;x++){let v=1;for(let k=-r;k<=r;k++){const yy=Math.min(Math.max(y+k,0),H-1);if(!t[yy*W+x]){v=0;break;}}o[y*W+x]=v;}
-          return o;
-        };
-        const fov = erode(fov0, 8);
+      for (let y = 0; y < H; y++) {
+        const row = y * W;
 
-        // ── 2. Correction d'illumination : on retire le fond (grand flou) ──────────
-        const bg = gauss(signal, 18);
-        const corr = new Float32Array(W*H);
-        for(let i=0;i<W*H;i++) corr[i] = fov[i] ? Math.max(0, signal[i]-bg[i]) : 0;
+        for (let x = 0; x < W; x++) {
+          let sum = 0;
 
-        // ── 3. Vesselness de Frangi : ne réagit qu'aux structures tubulaires ───────
-        // (vaisseaux) — pas aux taches/blobs (disque optique) ni au bruit ponctuel.
-        const vessel = new Float32Array(W*H);
-        const scales = [1, 1.5, 2, 3, 4];
-        const beta2 = 2*0.5*0.5;                 // β = 0.5 (pénalise la "blobness")
-        for (const s of scales) {
-          const g = gauss(corr, s);
-          const s2 = s*s;                        // normalisation d'échelle
-          const Rb = new Float32Array(W*H);
-          const Sv = new Float32Array(W*H);
-          let Smax = 1e-6;
-          for (let y=1;y<H-1;y++) for (let x=1;x<W-1;x++){
-            const i=y*W+x;
-            const dxx=(g[i+1]-2*g[i]+g[i-1])*s2;
-            const dyy=(g[i+W]-2*g[i]+g[i-W])*s2;
-            const dxy=(g[i+W+1]-g[i+W-1]-g[i-W+1]+g[i-W-1])*0.25*s2;
-            const tmp=Math.sqrt((dxx-dyy)*(dxx-dyy)+4*dxy*dxy);
-            let l1=(dxx+dyy+tmp)/2, l2=(dxx+dyy-tmp)/2;
-            if (Math.abs(l1)>Math.abs(l2)){ const t=l1;l1=l2;l2=t; }   // |l1| ≤ |l2|
-            if (l2>=0) continue;                  // vaisseau clair attendu ⇒ l2 < 0
-            const S=Math.sqrt(l1*l1+l2*l2);
-            Rb[i]=l1/l2; Sv[i]=S;
-            if (S>Smax) Smax=S;
+          for (let k = -radius; k <= radius; k++) {
+            const xx = Math.min(W - 1, Math.max(0, x + k));
+            sum += src[row + xx] * kernel[k + radius];
           }
-          const c2 = 2*(0.5*Smax)*(0.5*Smax);     // demi-structureness max
-          for (let i=0;i<W*H;i++){
-            if (Sv[i]<=0) continue;
-            const v = Math.exp(-(Rb[i]*Rb[i])/beta2) * (1 - Math.exp(-(Sv[i]*Sv[i])/c2));
-            if (v>vessel[i]) vessel[i]=v;
-          }
+
+          tmp[row + x] = sum;
         }
-        for(let i=0;i<W*H;i++) if(!fov[i]) vessel[i]=0;
+      }
 
-        // ── 4. Seuillage : percentile calculé sur le FOV uniquement ───────────────
-        const vals=[];
-        for(let i=0;i<W*H;i++) if(fov[i] && vessel[i]>0) vals.push(vessel[i]);
-        vals.sort((a,b)=>a-b);
-        const keep = 0.13;                        // ~13 % du FOV (densité typique des vaisseaux)
-        const thr = vals.length ? vals[Math.floor(vals.length*(1-keep))] : Infinity;
-        const mask=new Uint8Array(W*H);
-        for(let i=0;i<W*H;i++) mask[i] = (fov[i] && vessel[i]>=thr && vessel[i]>0) ? 1 : 0;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          let sum = 0;
 
-        // ── 5. Nettoyage : suppression des petits amas isolés (bruit résiduel) ────
-        const seen=new Uint8Array(W*H);
-        const stack=new Int32Array(W*H);
-        const minArea=20;
-        for(let i=0;i<W*H;i++){
-          if(!mask[i]||seen[i]) continue;
-          let sp=0; const comp=[]; stack[sp++]=i; seen[i]=1;
-          while(sp>0){
-            const p=stack[--sp]; comp.push(p);
-            const px=p%W, py=(p-px)/W;
-            for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
-              if(!dx&&!dy) continue;
-              const nx=px+dx, ny=py+dy;
-              if(nx<0||ny<0||nx>=W||ny>=H) continue;
-              const np=ny*W+nx;
-              if(mask[np]&&!seen[np]){ seen[np]=1; stack[sp++]=np; }
+          for (let k = -radius; k <= radius; k++) {
+            const yy = Math.min(H - 1, Math.max(0, y + k));
+            sum += tmp[yy * W + x] * kernel[k + radius];
+          }
+
+          out[y * W + x] = sum;
+        }
+      }
+
+      return out;
+    }
+
+    const binaryDilate = (mask, radius = 1) => {
+      if (radius <= 0) return new Uint8Array(mask);
+
+      const horizontal = new Uint8Array(N);
+      const out = new Uint8Array(N);
+
+      for (let y = 0; y < H; y++) {
+        const row = y * W;
+
+        for (let x = 0; x < W; x++) {
+          let value = 0;
+
+          for (let dx = -radius; dx <= radius; dx++) {
+            const xx = x + dx;
+
+            if (xx >= 0 && xx < W && mask[row + xx]) {
+              value = 1;
+              break;
             }
           }
-          if(comp.length>=minArea) for(const p of comp) clean[p]=1;
-        }
-      } else {
-        // ── Empreinte : DoG multi-échelle (adapté aux crêtes digitales) ───────────
-        const vessel = new Float32Array(W*H);
-        for(const s of [0.5,1,1.5,2]) {
-          const b1=gauss(signal,s), b2=gauss(signal,s*1.6);
-          for(let i=0;i<W*H;i++){const r=Math.max(0,b1[i]-b2[i]*0.75);if(r>vessel[i])vessel[i]=r;}
-        }
-        const sorted=Float32Array.from(vessel).sort();
-        const thresh=sorted[Math.floor(W*H*0.65)];
-        const mask=new Uint8Array(W*H);
-        for(let i=0;i<W*H;i++){
-          const isBlack=(raw[i*4]+raw[i*4+1]+raw[i*4+2])<15;
-          mask[i]=(vessel[i]>=thresh&&!isBlack)?1:0;
-        }
-        for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
-          if(!mask[y*W+x]) continue;
-          const nb=mask[(y-1)*W+x]+mask[(y+1)*W+x]+mask[y*W+(x-1)]+mask[y*W+(x+1)]+mask[(y-1)*W+(x-1)]+mask[(y-1)*W+(x+1)]+mask[(y+1)*W+(x-1)]+mask[(y+1)*W+(x+1)];
-          if(nb>=2) clean[y*W+x]=1;
+
+          horizontal[row + x] = value;
         }
       }
 
-      const maskCanvas=document.createElement("canvas");
-      maskCanvas.width=W; maskCanvas.height=H;
-      const mCtx=maskCanvas.getContext("2d");
-      const mData=mCtx.createImageData(W,H);
-      for(let i=0;i<W*H;i++){const v=clean[i]?255:0;mData.data[i*4]=v;mData.data[i*4+1]=v;mData.data[i*4+2]=v;mData.data[i*4+3]=255;}
-      mCtx.putImageData(mData,0,0);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          let value = 0;
 
-      const ovCanvas=document.createElement("canvas");
-      ovCanvas.width=W; ovCanvas.height=H;
-      const ovCtx=ovCanvas.getContext("2d");
-      ovCtx.drawImage(origCanvas,0,0);
-      const ovData=ovCtx.getImageData(0,0,W,H);
-      const od=ovData.data;
-      const [hr,hg,hb]=mode==="retine"?[255,80,80]:[60,160,255];
-      for(let i=0;i<W*H;i++) if(clean[i]){od[i*4]=Math.min(255,od[i*4]*0.2+hr*0.8);od[i*4+1]=Math.min(255,od[i*4+1]*0.2+hg*0.8);od[i*4+2]=Math.min(255,od[i*4+2]*0.2+hb*0.8);}
-      ovCtx.putImageData(ovData,0,0);
+          for (let dy = -radius; dy <= radius; dy++) {
+            const yy = y + dy;
 
-      const cleanF=new Uint8Array(W*H);
-      for(let i=0;i<W*H;i++) cleanF[i]=clean[i];
+            if (yy >= 0 && yy < H && horizontal[yy * W + x]) {
+              value = 1;
+              break;
+            }
+          }
 
-      // Squelettisation
-      const skel = skeletonize(cleanF, W, H);
-
-      // Rendu squelette
-      const skelCanvas=document.createElement("canvas");
-      skelCanvas.width=W; skelCanvas.height=H;
-      const sCtx=skelCanvas.getContext("2d");
-      const sData=sCtx.createImageData(W,H);
-      for(let i=0;i<W*H;i++){const v=skel[i]?255:0;sData.data[i*4]=v;sData.data[i*4+1]=v;sData.data[i*4+2]=v;sData.data[i*4+3]=255;}
-      sCtx.putImageData(sData,0,0);
-
-      // Extraction features selon mode
-      let features;
-      if(mode==="retine") {
-        features = extractRetineFeatures(cleanF, skel, W, H);
-      } else {
-        features = extractFingerprintFeatures(cleanF, W, H);
+          out[y * W + x] = value;
+        }
       }
 
-      resolve({
-        maskUrl:maskCanvas.toDataURL("image/png"),
-        overlayUrl:ovCanvas.toDataURL("image/png"),
-        originalUrl:origCanvas.toDataURL("image/png"),
-        skelUrl:skelCanvas.toDataURL("image/png"),
-        fullVector: features.fullVector,
-        optimizedVector: features.optimizedVector,
-        optimizedArray: features.optimizedArray,
-        stats: features.stats,
-        mode,
-      });
+      return out;
     };
-    img.onerror=reject;
-    img.src=url;
-  });
+
+    const binaryErode = (mask, radius = 1) => {
+      if (radius <= 0) return new Uint8Array(mask);
+
+      const horizontal = new Uint8Array(N);
+      const out = new Uint8Array(N);
+
+      for (let y = 0; y < H; y++) {
+        const row = y * W;
+
+        for (let x = 0; x < W; x++) {
+          let value = 1;
+
+          for (let dx = -radius; dx <= radius; dx++) {
+            const xx = x + dx;
+
+            if (xx < 0 || xx >= W || !mask[row + xx]) {
+              value = 0;
+              break;
+            }
+          }
+
+          horizontal[row + x] = value;
+        }
+      }
+
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          let value = 1;
+
+          for (let dy = -radius; dy <= radius; dy++) {
+            const yy = y + dy;
+
+            if (yy < 0 || yy >= H || !horizontal[yy * W + x]) {
+              value = 0;
+              break;
+            }
+          }
+
+          out[y * W + x] = value;
+        }
+      }
+
+      return out;
+    };
+
+    const binaryClose = (mask, radius = 1) =>
+      binaryErode(binaryDilate(mask, radius), radius);
+
+    const fillHoles = (mask) => {
+      const outside = new Uint8Array(N);
+      const queue = new Int32Array(N);
+      let head = 0;
+      let tail = 0;
+
+      const pushIfBackground = (index) => {
+        if (!mask[index] && !outside[index]) {
+          outside[index] = 1;
+          queue[tail++] = index;
+        }
+      };
+
+      for (let x = 0; x < W; x++) {
+        pushIfBackground(x);
+        pushIfBackground((H - 1) * W + x);
+      }
+
+      for (let y = 0; y < H; y++) {
+        pushIfBackground(y * W);
+        pushIfBackground(y * W + W - 1);
+      }
+
+      while (head < tail) {
+        const p = queue[head++];
+        const x = p % W;
+        const y = (p - x) / W;
+
+        if (x > 0) pushIfBackground(p - 1);
+        if (x < W - 1) pushIfBackground(p + 1);
+        if (y > 0) pushIfBackground(p - W);
+        if (y < H - 1) pushIfBackground(p + W);
+      }
+
+      const out = new Uint8Array(mask);
+
+      for (let i = 0; i < N; i++) {
+        if (!mask[i] && !outside[i]) {
+          out[i] = 1;
+        }
+      }
+
+      return out;
+    };
+
+    const largestConnectedComponent = (mask) => {
+      const seen = new Uint8Array(N);
+      const stack = new Int32Array(N);
+      let best = [];
+
+      for (let start = 0; start < N; start++) {
+        if (!mask[start] || seen[start]) continue;
+
+        const component = [];
+        let size = 0;
+
+        stack[size++] = start;
+        seen[start] = 1;
+
+        while (size > 0) {
+          const p = stack[--size];
+          component.push(p);
+
+          const x = p % W;
+          const y = (p - x) / W;
+
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (!dx && !dy) continue;
+
+              const nx = x + dx;
+              const ny = y + dy;
+
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+
+              const np = ny * W + nx;
+
+              if (mask[np] && !seen[np]) {
+                seen[np] = 1;
+                stack[size++] = np;
+              }
+            }
+          }
+        }
+
+        if (component.length > best.length) {
+          best = component;
+        }
+      }
+```
+      const out = new Uint8Array(N);
+
+      for (const index of best) {
+        out[index] = 1;
+      }
+
+      return out;
+    };
+
+    const removeSmallComponents = (mask, minArea) => {
+      const seen = new Uint8Array(N);
+      const stack = new Int32Array(N);
+      const out = new Uint8Array(N);
+
+      for (let start = 0; start < N; start++) {
+        if (!mask[start] || seen[start]) continue;
+
+        const component = [];
+        let size = 0;
+
+        stack[size++] = start;
+        seen[start] = 1;
+
+        while (size > 0) {
+          const p = stack[--size];
+          component.push(p);
+
+          const x = p % W;
+          const y = (p - x) / W;
+
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (!dx && !dy) continue;
+
+              const nx = x + dx;
+              const ny = y + dy;
+
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+
+              const np = ny * W + nx;
+
+              if (mask[np] && !seen[np]) {
+                seen[np] = 1;
+                stack[size++] = np;
+              }
+            }
+          }
+        }
+
+        if (component.length >= minArea) {
+          for (const index of component) {
+            out[index] = 1;
+          }
+        }
+      }
+
+      return out;
+    };
+
+    const buildLocalStats = (src, radius) => {
+      const stride = W + 1;
+      const integral = new Float64Array((W + 1) * (H + 1));
+      const integralSq = new Float64Array((W + 1) * (H + 1));
+
+      for (let y = 1; y <= H; y++) {
+        let rowSum = 0;
+        let rowSqSum = 0;
+
+        for (let x = 1; x <= W; x++) {
+          const value = src[(y - 1) * W + (x - 1)];
+
+          rowSum += value;
+          rowSqSum += value * value;
+
+          const index = y * stride + x;
+
+          integral[index] = integral[index - stride] + rowSum;
+          integralSq[index] = integralSq[index - stride] + rowSqSum;
+        }
+      }
+
+      const mean = new Float32Array(N);
+      const std = new Float32Array(N);
+
+      for (let y = 0; y < H; y++) {
+        const y0 = Math.max(0, y - radius);
+        const y1 = Math.min(H - 1, y + radius);
+
+        for (let x = 0; x < W; x++) {
+          const x0 = Math.max(0, x - radius);
+          const x1 = Math.min(W - 1, x + radius);
+
+          const a = y0 * stride + x0;
+          const b = y0 * stride + (x1 + 1);
+          const c = (y1 + 1) * stride + x0;
+          const d = (y1 + 1) * stride + (x1 + 1);
+
+          const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+
+          const sum =
+            integral[d] - integral[b] - integral[c] + integral[a];
+
+          const sumSq =
+            integralSq[d] -
+            integralSq[b] -
+            integralSq[c] +
+            integralSq[a];
+
+          const m = sum / area;
+          const variance = Math.max(0, sumSq / area - m * m);
+          const index = y * W + x;
+
+          mean[index] = m;
+          std[index] = Math.sqrt(variance);
+        }
+      }
+
+      return { mean, std };
+    };
+
+    const hysteresis = (
+      score,
+      roi,
+      lowThreshold,
+      highThreshold
+    ) => {
+      const accepted = new Uint8Array(N);
+      const queue = new Int32Array(N);
+
+      let head = 0;
+      let tail = 0;
+
+      for (let i = 0; i < N; i++) {
+        if (roi[i] && score[i] >= highThreshold) {
+          accepted[i] = 1;
+          queue[tail++] = i;
+        }
+      }
+
+      while (head < tail) {
+        const p = queue[head++];
+        const x = p % W;
+        const y = (p - x) / W;
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+
+            const nx = x + dx;
+            const ny = y + dy;
+
+            if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+
+            const np = ny * W + nx;
+
+            if (
+              !accepted[np] &&
+              roi[np] &&
+              score[np] >= lowThreshold
+            ) {
+              accepted[np] = 1;
+              queue[tail++] = np;
+            }
+          }
+        }
+      }
+
+      return accepted;
+    };
+
+    const luminance = new Float32Array(N);
+    const green = new Float32Array(N);
+    const gray = new Float32Array(N);
+
+    for (let i = 0; i < N; i++) {
+      const r = raw[i * 4] / 255;
+      const g = raw[i * 4 + 1] / 255;
+      const b = raw[i * 4 + 2] / 255;
+
+      green[i] = g;
+      gray[i] = r * 0.299 + g * 0.587 + b * 0.114;
+      luminance[i] = (r + g + b) / 3;
+    }
+
+    let clean = new Uint8Array(N);
+    let analysisRoi = new Uint8Array(N);
+
+    if (mode === "retine") {
+      // Création d'un meilleur masque du champ rétinien.
+      const fovCandidate = new Uint8Array(N);
+
+      for (let i = 0; i < N; i++) {
+        const r = raw[i * 4] / 255;
+        const g = raw[i * 4 + 1] / 255;
+        const b = raw[i * 4 + 2] / 255;
+
+        const maxChannel = Math.max(r, g, b);
+        const chroma = maxChannel - Math.min(r, g, b);
+
+        fovCandidate[i] =
+          maxChannel > 0.045 &&
+          (luminance[i] > 0.025 || chroma > 0.025)
+            ? 1
+            : 0;
+      }
+
+      let fov = largestConnectedComponent(fovCandidate);
+      let fovArea = countMask(fov);
+
+      // Si aucun bord noir n'est détecté, on utilise presque tout le cadre.
+      if (fovArea < N * 0.22) {
+        fov = new Uint8Array(N);
+
+        for (let y = 10; y < H - 10; y++) {
+          for (let x = 10; x < W - 10; x++) {
+            fov[y * W + x] = 1;
+          }
+        }
+      } else {
+        fov = fillHoles(binaryClose(fov, 3));
+      }
+
+      // Retire le bord de l'image rétinienne.
+      fov = binaryErode(fov, 8);
+
+      analysisRoi = fov;
+      fovArea = Math.max(1, countMask(fov));
+
+      // Canal vert inversé : les vaisseaux deviennent plus clairs.
+      const invertedGreen = new Float32Array(N);
+
+      for (let i = 0; i < N; i++) {
+        invertedGreen[i] = 1 - green[i];
+      }
+
+      // Correction de l'éclairage.
+      const background = gauss(invertedGreen, 22);
+      const local = buildLocalStats(invertedGreen, 15);
+
+      const shadeCorrected = new Float32Array(N);
+      const positiveZ = new Float32Array(N);
+      const shadeValues = [];
+
+      for (let i = 0; i < N; i++) {
+        if (!fov[i]) continue;
+
+        const shade = Math.max(
+          0,
+          invertedGreen[i] - background[i]
+        );
+
+        const z = Math.max(
+          0,
+          (invertedGreen[i] - local.mean[i]) /
+            Math.max(0.018, local.std[i])
+        );
+
+        shadeCorrected[i] = shade;
+        positiveZ[i] = Math.min(4, z) / 4;
+
+        if (shade > 0) {
+          shadeValues.push(shade);
+        }
+      }
+
+      const shadeScale = Math.max(
+        1e-5,
+        percentile(shadeValues, 0.99)
+      );
+
+      const enhanced = new Float32Array(N);
+
+      for (let i = 0; i < N; i++) {
+        if (!fov[i]) continue;
+
+        const normalizedShade = Math.min(
+          1,
+          shadeCorrected[i] / shadeScale
+        );
+
+        enhanced[i] =
+          0.62 * normalizedShade + 0.38 * positiveZ[i];
+      }
+
+      // Filtre de Frangi multi-échelle.
+      const vesselness = new Float32Array(N);
+      const scales = [0.8, 1.2, 1.8, 2.6, 3.6, 5.0];
+      const beta = 0.55;
+      const beta2 = 2 * beta * beta;
+
+      for (const sigma of scales) {
+        const blurred = gauss(enhanced, sigma);
+        const rb = new Float32Array(N);
+        const structure = new Float32Array(N);
+
+        let maxStructure = 1e-6;
+        const sigma2 = sigma * sigma;
+
+        for (let y = 1; y < H - 1; y++) {
+          for (let x = 1; x < W - 1; x++) {
+            const i = y * W + x;
+
+            if (!fov[i]) continue;
+
+            const dxx =
+              (blurred[i + 1] -
+                2 * blurred[i] +
+                blurred[i - 1]) *
+              sigma2;
+
+            const dyy =
+              (blurred[i + W] -
+                2 * blurred[i] +
+                blurred[i - W]) *
+              sigma2;
+
+            const dxy =
+              (blurred[i + W + 1] -
+                blurred[i + W - 1] -
+                blurred[i - W + 1] +
+                blurred[i - W - 1]) *
+              0.25 *
+              sigma2;
+
+            const delta = Math.sqrt(
+              (dxx - dyy) ** 2 + 4 * dxy * dxy
+            );
+
+            let lambda1 = (dxx + dyy + delta) / 2;
+            let lambda2 = (dxx + dyy - delta) / 2;
+
+            if (Math.abs(lambda1) > Math.abs(lambda2)) {
+              const tmp = lambda1;
+              lambda1 = lambda2;
+              lambda2 = tmp;
+            }
+
+            if (lambda2 >= 0) continue;
+
+            const s = Math.sqrt(
+              lambda1 * lambda1 + lambda2 * lambda2
+            );
+
+            rb[i] = lambda1 / (lambda2 || -1e-6);
+            structure[i] = s;
+
+            if (s > maxStructure) {
+              maxStructure = s;
+            }
+          }
+        
+        const c = Math.max(1e-6, 0.5 * maxStructure);
+        const c2 = 2 * c * c;
+
+        for (let i = 0; i < N; i++) {
+          if (structure[i] <= 0) continue;
+
+          const response =
+            Math.exp(-(rb[i] * rb[i]) / beta2) *
+            (1 -
+              Math.exp(
+                -(structure[i] * structure[i]) / c2
+              ));
+
+          if (response > vesselness[i]) {
+            vesselness[i] = response;
+          }
+        }
+      }
+
+      // Double seuil pour conserver les vaisseaux fins connectés.
+      const values = [];
+
+      for (let i = 0; i < N; i++) {
+        if (fov[i] && vesselness[i] > 0) {
+          values.push(vesselness[i]);
+        }
+      }
+
+      let high = percentile(values, 0.91);
+      let low = percentile(values, 0.73);
+
+      let mask = hysteresis(
+        vesselness,
+        fov,
+        low,
+        high
+      );
+
+      let density = countMask(mask) / fovArea;
+
+      // Ajustement automatique selon la qualité de l'image.
+      if (density < 0.018) {
+        high = percentile(values, 0.86);
+        low = percentile(values, 0.64);
+
+        mask = hysteresis(
+          vesselness,
+          fov,
+          low,
+          high
+        );
+      } else if (density > 0.19) {
+        high = percentile(values, 0.95);
+        low = percentile(values, 0.84);
+
+        mask = hysteresis(
+          vesselness,
+          fov,
+          low,
+          high
+        );
+      }
+
+      mask = binaryClose(mask, 1);
+      clean = removeSmallComponents(mask, 10);
+
+      for (let i = 0; i < N; i++) {
+        clean[i] = clean[i] && fov[i] ? 1 : 0;
+      }
+    } else {
+      // Segmentation de l'empreinte digitale.
+      const localGray = buildLocalStats(gray, 10);
+      const stdValues = [];
+
+      for (let i = 0; i < N; i++) {
+        if (luminance[i] > 0.02) {
+          stdValues.push(localGray.std[i]);
+        }
+      }
+
+      const varianceThreshold = Math.max(
+        0.025,
+        percentile(stdValues, 0.48)
+      );
+
+      const roiCandidate = new Uint8Array(N);
+
+      for (let i = 0; i < N; i++) {
+        roiCandidate[i] =
+          luminance[i] > 0.02 &&
+          localGray.std[i] >= varianceThreshold
+            ? 1
+            : 0;
+      }
+
+      let roi = largestConnectedComponent(roiCandidate);
+
+      if (countMask(roi) < N * 0.12) {
+        roi = new Uint8Array(N);
+
+        for (let y = 12; y < H - 12; y++) {
+          for (let x = 12; x < W - 12; x++) {
+            roi[y * W + x] = 1;
+          }
+        }
+      } else {
+        roi = fillHoles(binaryClose(roi, 5));
+        roi = binaryErode(roi, 5);
+      }
+
+      analysisRoi = roi;
+
+      const roiArea = Math.max(1, countMask(roi));
+      const ridgeLocal = new Float32Array(N);
+      const invertedGray = new Float32Array(N);
+
+      for (let i = 0; i < N; i++) {
+        invertedGray[i] = 1 - gray[i];
+
+        if (!roi[i]) continue;
+
+        const z =
+          (localGray.mean[i] - gray[i]) /
+          Math.max(0.025, localGray.std[i]);
+
+        ridgeLocal[i] = Math.min(
+          1,
+          Math.max(0, z / 2.5)
+        );
+      }
+
+      // Différence de Gaussiennes multi-échelle.
+      const dog = new Float32Array(N);
+
+      for (const sigma of [0.7, 1.0, 1.4, 1.9]) {
+        const fine = gauss(invertedGray, sigma);
+        const coarse = gauss(
+          invertedGray,
+          sigma * 2.2
+        );
+
+        for (let i = 0; i < N; i++) {
+          if (!roi[i]) continue;
+
+          const response = Math.max(
+            0,
+            fine[i] - coarse[i]
+          );
+
+          if (response > dog[i]) {
+            dog[i] = response;
+          }
+        }
+      }
+
+      const dogValues = [];
+
+      for (let i = 0; i < N; i++) {
+        if (roi[i] && dog[i] > 0) {
+          dogValues.push(dog[i]);
+        }
+      }
+
+      const dogScale = Math.max(
+        1e-5,
+        percentile(dogValues, 0.98)
+      );
+
+      const ridgeScore = new Float32Array(N);
+      const scoreValues = [];
+
+      for (let i = 0; i < N; i++) {
+        if (!roi[i]) continue;
+
+        const normalizedDog = Math.min(
+          1,
+          dog[i] / dogScale
+        );
+
+        ridgeScore[i] =
+          0.68 * ridgeLocal[i] +
+          0.32 * normalizedDog;
+
+        scoreValues.push(ridgeScore[i]);
+      }
+
+      let high = percentile(scoreValues, 0.66);
+      let low = percentile(scoreValues, 0.49);
+
+      let mask = hysteresis(
+        ridgeScore,
+        roi,
+        low,
+        high
+      );
+
+      let density = countMask(mask) / roiArea;
+
+      if (density < 0.16) {
+        high = percentile(scoreValues, 0.60);
+        low = percentile(scoreValues, 0.43);
+
+        mask = hysteresis(
+          ridgeScore,
+          roi,
+          low,
+          high
+        );
+      } else if (density > 0.46) {
+        high = percentile(scoreValues, 0.73);
+        low = percentile(scoreValues, 0.58);
+
+        mask = hysteresis(
+          ridgeScore,
+          roi,
+          low,
+          high
+        );
+      }
+
+      mask = binaryClose(mask, 1);
+      clean = removeSmallComponents(mask, 12);
+
+      for (let i = 0; i < N; i++) {
+        clean[i] = clean[i] && roi[i] ? 1 : 0;
+      }
+    }
+
+    // Création de l'image du masque.
+    const maskCanvas = document.createElement("canvas");
+    maskCanvas.width = W;
+    maskCanvas.height = H;
+
+    const mCtx = maskCanvas.getContext("2d");
+    const mData = mCtx.createImageData(W, H);
+
+    for (let i = 0; i < N; i++) {
+      const value = clean[i] ? 255 : 0;
+
+      mData.data[i * 4] = value;
+      mData.data[i * 4 + 1] = value;
+      mData.data[i * 4 + 2] = value;
+      mData.data[i * 4 + 3] = 255;
+    }
+
+    mCtx.putImageData(mData, 0, 0);
+
+    // Superposition du masque sur l'image d'origine.
+    const ovCanvas = document.createElement("canvas");
+    ovCanvas.width = W;
+    ovCanvas.height = H;
+
+    const ovCtx = ovCanvas.getContext("2d");
+    ovCtx.drawImage(origCanvas, 0, 0);
+
+    const ovData = ovCtx.getImageData(0, 0, W, H);
+    const overlay = ovData.data;
+
+    const [highlightR, highlightG, highlightB] =
+      mode === "retine"
+        ? [255, 70, 70]
+        : [60, 160, 255];
+
+    for (let i = 0; i < N; i++) {
+      if (!clean[i]) continue;
+
+      overlay[i * 4] = Math.min(
+        255,
+        overlay[i * 4] * 0.25 +
+          highlightR * 0.75
+      );
+
+      overlay[i * 4 + 1] = Math.min(
+        255,
+        overlay[i * 4 + 1] * 0.25 +
+          highlightG * 0.75
+      );
+
+      overlay[i * 4 + 2] = Math.min(
+        255,
+        overlay[i * 4 + 2] * 0.25 +
+          highlightB * 0.75
+      );
+    }
+
+    ovCtx.putImageData(ovData, 0, 0);
+
+    const cleanF = new Uint8Array(clean);
+    const skel = skeletonize(cleanF, W, H);
+
+    // Création de l'image du squelette.
+    const skelCanvas = document.createElement("canvas");
+    skelCanvas.width = W;
+    skelCanvas.height = H;
+
+    const sCtx = skelCanvas.getContext("2d");
+    const sData = sCtx.createImageData(W, H);
+
+    for (let i = 0; i < N; i++) {
+      const value = skel[i] ? 255 : 0;
+
+      sData.data[i * 4] = value;
+      sData.data[i * 4 + 1] = value;
+      sData.data[i * 4 + 2] = value;
+      sData.data[i * 4 + 3] = 255;
+    }
+
+    sCtx.putImageData(sData, 0, 0);
+
+    // Les minuties de l'empreinte sont calculées sur le squelette.
+    const features =
+      mode === "retine"
+        ? extractRetineFeatures(
+            cleanF,
+            skel,
+            W,
+            H
+          )
+        : extractFingerprintFeatures(
+            skel,
+            W,
+            H
+          );
+
+    const roiPixels = Math.max(
+      1,
+      countMask(analysisRoi)
+    );
+
+    resolve({
+      maskUrl: maskCanvas.toDataURL("image/png"),
+      overlayUrl: ovCanvas.toDataURL("image/png"),
+      originalUrl: origCanvas.toDataURL("image/png"),
+      skelUrl: skelCanvas.toDataURL("image/png"),
+      fullVector: features.fullVector,
+      optimizedVector: features.optimizedVector,
+      optimizedArray: features.optimizedArray,
+      stats: {
+        ...features.stats,
+        maskDensity: parseFloat(
+          (
+            (countMask(clean) / roiPixels) *
+            100
+          ).toFixed(2)
+        ),
+        segmentationVersion: 2,
+      },
+      mode,
+      segmentationVersion: 2,
+    });
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    reject(error);
+  }
+};
+
+img.onerror = () => {
+  URL.revokeObjectURL(url);
+
+  reject(
+    new Error(
+      "Impossible de lire l'image sélectionnée."
+    )
+  );
+};
+
+img.src = url;
+
+});
 }
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLES
