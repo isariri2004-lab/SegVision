@@ -323,7 +323,7 @@ return new Promise((resolve, reject) => {
 const img = new Image();
 const url = URL.createObjectURL(file);
 
-```
+
 img.onload = () => {
   try {
     const W = 512;
@@ -606,7 +606,7 @@ img.onload = () => {
           best = component;
         }
       }
-```
+
       const out = new Uint8Array(N);
 
       for (const index of best) {
