@@ -953,13 +953,17 @@ img.onload = () => {
             rb[i] = lambda1 / (lambda2 || -1e-6);
             structure[i] = s;
 
-            if (s > maxStructure) {
-              maxStructure = s;
-            }
-          }
         
-        const c = Math.max(1e-6, 0.5 * maxStructure);
-        const c2 = 2 * c * c;
+        if (s > maxStructure) {
+          maxStructure = s;
+        }
+      }
+    }
+
+    const c = Math.max(1e-6, 0.5 * maxStructure);
+    const c2 = 2 * c * c;
+
+
 
         for (let i = 0; i < N; i++) {
           if (structure[i] <= 0) continue;
