@@ -1620,29 +1620,122 @@ function LoginPage({ onLogin, users, onRegister }) {
     if (u.disabled) { setErr("Ce compte a été suspendu par un administrateur."); return; }
     if (u.pendingValidation) { setErr("Compte en attente de validation par un administrateur."); return; }
 
-    // Vérification biométrique : la rétine doit correspondre à celle enrôlée par l'admin
-    if (u.role === "client") {
-      if (!u.retineVector) { setErr("Aucune rétine enrôlée pour ce compte. Contactez votre administrateur."); return; }
-      if (!retineFile)     { setErr("Importez votre image rétinienne pour vous authentifier."); return; }
-      setLoading(true); setErr("");
-      try {
-        const res = await processBiometric(retineFile, "retine");
-        const comparison = compareRetinaVectors(res.optimizedArray, u.retineVector);
-        if (!comparison.match) {
-          setLoading(false);
-          setErr(`Rétine non reconnue — similarité ${comparison.similarity.toFixed(1)} %.`);
-          return;
-        }
-      } catch(e) {
-        setLoading(false);
-        setErr(`Erreur lors de l'analyse rétinienne : ${e.message}`);
-        return;
-      }
-      setLoading(false);
+  
+// Vérification biométrique utilisateur
+if (u.role === "client") {
+  const requiredMode =
+    u.authMode === "double"
+      ? "double"
+      : "empreinte";
+
+  if (loginMode !== requiredMode) {
+    setErr(
+      requiredMode === "double"
+        ? "Ce compte est Premium : utilisez Empreinte + Rétine."
+        : "Ce compte est Standard : utilisez Empreinte seule."
+    );
+    return;
+  }
+
+  if (!u.empreinteVector) {
+    setErr(
+      "Aucune empreinte n'est enregistrée pour ce compte."
+    );
+    return;
+  }
+
+  if (!empreinteFile) {
+    setErr(
+      "Importez votre empreinte pour vous authentifier."
+    );
+    return;
+  }
+
+  if (
+    requiredMode === "double" &&
+    !u.retineVector
+  ) {
+    setErr(
+      "Aucune rétine n'est enregistrée pour ce compte Premium."
+    );
+    return;
+  }
+
+  if (
+    requiredMode === "double" &&
+    !retineFile
+  ) {
+    setErr(
+      "Importez également votre rétine pour le mode Premium."
+    );
+    return;
+  }
+
+  setLoading(true);
+  setErr("");
+
+  try {
+    setLoadingMessage(
+      "Vérification de l'empreinte..."
+    );
+
+    const empreinteResult =
+      await processBiometric(
+        empreinteFile,
+        "empreinte"
+      );
+
+    const empreinteComparison =
+      compareFingerprintVectors(
+        empreinteResult.optimizedArray,
+        u.empreinteVector
+      );
+
+    if (!empreinteComparison.match) {
+      setErr(
+        `Empreinte non reconnue — similarité ${empreinteComparison.similarity.toFixed(
+          1
+        )} %.`
+      );
+      return;
     }
 
-    setErr(""); onLogin({username,...u});
-  };
+    if (requiredMode === "double") {
+      setLoadingMessage(
+        "Vérification de la rétine Premium..."
+      );
+
+      const retineResult =
+        await processBiometric(
+          retineFile,
+          "retine"
+        );
+
+      const retineComparison =
+        compareRetinaVectors(
+          retineResult.optimizedArray,
+          u.retineVector
+        );
+
+      if (!retineComparison.match) {
+        setErr(
+          `Rétine non reconnue — similarité ${retineComparison.similarity.toFixed(
+            1
+          )} %.`
+        );
+        return;
+      }
+    }
+  } catch (error) {
+    setErr(
+      `Erreur pendant l'authentification : ${error.message}`
+    );
+    return;
+  } finally {
+    setLoading(false);
+    setLoadingMessage("");
+  }
+}
 
   return (
     <div style={{ minHeight:"100vh", display:"flex", background:`linear-gradient(135deg,${C.sidebar} 0%,#1A1A4A 100%)`, ...F }}>
