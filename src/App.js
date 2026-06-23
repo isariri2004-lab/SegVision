@@ -3266,25 +3266,21 @@ return (
 <div
 style={{
 minHeight: "100vh",
-background: linear-gradient(135deg, ${C.clientSidebar} 0%, #3B0D8C 100%),
-display: "flex",
-flexDirection: "column",
+background: C.bg,
 ...F,
 }}
 >
 <header
 style={{
 height: 72,
-padding: "0 32px",
+padding: "0 24px",
 display: "flex",
 alignItems: "center",
 justifyContent: "space-between",
-borderBottom: "1px solid rgba(255,255,255,0.12)",
-background: "rgba(0,0,0,0.12)",
+background: C.clientSidebar,
+boxSizing: "border-box",
 }}
->
-
-
+> <Logo size={38} />
 
     <button
       onClick={onLogout}
@@ -3302,46 +3298,40 @@ background: "rgba(0,0,0,0.12)",
 
   <main
     style={{
-      flex: 1,
-
-}
-Déconnexion
-
-
-
-
-  <main
-    style={{
-      flex: 1,
+      minHeight: "calc(100vh - 72px)",
+      padding: 24,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      padding: 32,
+      boxSizing: "border-box",
     }}
   >
     <div
       style={{
         width: "100%",
-        maxWidth: 720,
+        maxWidth: 700,
+        padding: 48,
         background: C.surface,
-        borderRadius: 22,
-        padding: "64px 48px",
+        border: `1px solid ${C.border}`,
+        borderRadius: 20,
         textAlign: "center",
-        boxShadow: "0 24px 70px rgba(0,0,0,0.30)",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
+        boxSizing: "border-box",
       }}
     >
       <div
         style={{
-          width: 82,
-          height: 82,
+          width: 80,
+          height: 80,
+          margin: "0 auto 24px",
           borderRadius: "50%",
-          background: C.successBg,
-          color: C.success,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          margin: "0 auto 24px",
+          background: C.successBg,
+          color: C.success,
           fontSize: 38,
+          fontWeight: 800,
         }}
       >
         ✓
@@ -3349,10 +3339,10 @@ Déconnexion
 
       <h1
         style={{
-          margin: "0 0 16px",
+          margin: "0 0 14px",
+          color: C.text,
           fontSize: 34,
           fontWeight: 900,
-          color: C.text,
         }}
       >
         Bonjour {user.username}
@@ -3361,8 +3351,8 @@ Déconnexion
       <p
         style={{
           margin: 0,
-          fontSize: 20,
           color: C.sub,
+          fontSize: 20,
           lineHeight: 1.6,
         }}
       >
@@ -3374,7 +3364,6 @@ Déconnexion
 
 );
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROOT
