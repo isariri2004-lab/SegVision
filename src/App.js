@@ -1729,6 +1729,10 @@ useState(null);
 const [loading, setLoading] = useState(false);
 const [loadingMessage, setLoadingMessage] =
 useState("");
+const [
+comparisonReport,
+setComparisonReport,
+] = useState(null);
 
 const empreinteRef = useRef();
 const retineRef = useRef();
