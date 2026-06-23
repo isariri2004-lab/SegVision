@@ -2486,7 +2486,7 @@ padding: "70px 20px",
 <div style={{ fontSize: 48, marginBottom: 14 }}>
 🧬 </div>
 
-```
+
     <h2
       style={{
         margin: "0 0 8px",
@@ -2518,7 +2518,7 @@ padding: "70px 20px",
     )}
   </div>
 );
-```
+
 
 }
 
@@ -2530,24 +2530,24 @@ result.securityMode === "double" && Boolean(retine);
 const getImage = (data, view) => {
 if (!data) return "";
 
-```
+
 if (view === "original") return data.originalUrl;
 if (view === "mask") return data.maskUrl;
 if (view === "skel") return data.skelUrl;
 
 return data.overlayUrl;
-```
+
 
 };
 
 const formatValue = value => {
 const number = Number(value);
 
-```
+
 return Number.isFinite(number)
   ? number.toFixed(4)
   : "-";
-```
+
 
 };
 
@@ -2561,7 +2561,7 @@ legend,
 }) => {
 if (!data) return null;
 
-```
+
 return (
   <div style={base.card}>
     <div
@@ -2652,7 +2652,7 @@ return (
     </div>
   </div>
 );
-```
+
 
 };
 
@@ -2664,7 +2664,7 @@ color,
 }) => {
 if (!vector) return null;
 
-```
+
 return (
   <div>
     <h3
@@ -2753,7 +2753,7 @@ return (
     </div>
   </div>
 );
-```
+
 
 };
 
