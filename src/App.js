@@ -2003,7 +2003,7 @@ function ResultsPanel({ result, accentColor=C.primary, onNew, onEnroll, onAuth }
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, gap:10, flexWrap:"wrap" }}>
               <div style={{ fontWeight:700, fontSize:14 }}>👁️ Visualisation rétine</div>
               <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                {[["overlay","Superposition"],["mask","Masque"],["skel","Squelette"],["original","Original"]].map(([value,label]) => (
+                {[["original","Original"],["overlay","Superposition"],["mask","Masque"],["skel","Squelette"]].map(([value,label]) => (
                   <button
                     key={value}
                     style={{ ...mkBtn((showSkel && value === "skel") || (!showSkel && value === viewMode) ? "primary" : "ghost",accentColor), padding:"4px 9px", fontSize:11 }}
