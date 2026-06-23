@@ -1657,7 +1657,7 @@ const changeUsername = value => {
 setUsername(value);
 setErr("");
 
-```
+
 const account = users[value];
 
 if (account?.role === "client") {
@@ -1667,14 +1667,14 @@ if (account?.role === "client") {
       : "empreinte"
   );
 }
-```
+
 
 };
 
 const login = async () => {
 const u = users[username];
 
-```
+
 if (!u || u.password !== password) {
   setErr("Identifiants incorrects.");
   return;
@@ -1827,7 +1827,7 @@ onLogin({
   username,
   ...u,
 });
-```
+
 
 };
 
@@ -1852,7 +1852,7 @@ event.target.files?.[0] || null
 }
 />
 
-```
+
   <div
     onClick={() =>
       inputRef.current?.click()
@@ -1918,7 +1918,7 @@ event.target.files?.[0] || null
     )}
   </div>
 </>
-```
+
 
 );
 
