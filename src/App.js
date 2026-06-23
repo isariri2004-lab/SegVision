@@ -1423,6 +1423,113 @@ const mkBadge = (color=C.primary) => ({ background:color+"18", color, borderRadi
 const mkChip  = (color=C.success) => ({ background:color+"18", color, borderRadius:20, padding:"4px 12px", fontSize:12, fontWeight:600 });
 const mkNav   = (active, ac=C.primary) => ({ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:9, color:active?"#fff":C.sidebarText, background:active?ac:"transparent", cursor:"pointer", fontWeight:active?600:400, fontSize:14, marginBottom:2, border:"none", width:"100%", textAlign:"left" });
 
+function ComparisonStatus({
+match,
+empreinte = null,
+retine = null,
+}) {
+return (
+<div
+style={{
+padding: "14px 16px",
+marginBottom: 16,
+borderRadius: 10,
+background: match
+? C.successBg
+: C.redBg,
+border: `1px solid ${
+          match
+            ? `${C.success}40`            :`${C.red}40`
+        }`,
+}}
+>
+<div
+style={{
+fontWeight: 800,
+fontSize: 14,
+color: match
+? C.success
+: C.red,
+marginBottom: 8,
+}}
+>
+{match
+? "✅ Vecteurs compatibles avec la même identité biométrique"
+: "❌ Vecteurs biométriques différents"} </div>
+
+
+  {empreinte && (
+    <div
+      style={{
+        fontSize: 12,
+        color: C.sub,
+        marginBottom: 4,
+      }}
+    >
+      🫆 Empreinte :{" "}
+      <strong
+        style={{
+          color: empreinte.match
+            ? C.success
+            : C.red,
+        }}
+      >
+        {empreinte.match
+          ? "correspondance détectée"
+          : "aucune correspondance"}
+      </strong>
+      {" · "}
+      {Number(
+        empreinte.similarity || 0
+      ).toFixed(1)}
+      %
+    </div>
+  )}
+
+  {retine && (
+    <div
+      style={{
+        fontSize: 12,
+        color: C.sub,
+        marginBottom: 4,
+      }}
+    >
+      👁️ Rétine :{" "}
+      <strong
+        style={{
+          color: retine.match
+            ? C.success
+            : C.red,
+        }}
+      >
+        {retine.match
+          ? "correspondance détectée"
+          : "aucune correspondance"}
+      </strong>
+      {" · "}
+      {Number(
+        retine.similarity || 0
+      ).toFixed(1)}
+      %
+    </div>
+  )}
+
+  <div
+    style={{
+      fontSize: 11,
+      color: C.muted,
+      marginTop: 7,
+    }}
+  >
+    Le verdict repose sur les vecteurs optimisés,
+    pas sur une comparaison directe des pixels.
+  </div>
+</div>
+
+
+);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ICONS
 // ═══════════════════════════════════════════════════════════════════════════════
