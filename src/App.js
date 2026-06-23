@@ -3284,7 +3284,6 @@ background: "rgba(0,0,0,0.12)",
 }}
 > <Logo size={38} />
 
-```
     <button
       onClick={onLogout}
       style={{
@@ -3302,7 +3301,6 @@ background: "rgba(0,0,0,0.12)",
   <main
     style={{
       flex: 1,
-```
 
 }
 Déconnexion </button> </header>
