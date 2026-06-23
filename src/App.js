@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // USERS
@@ -291,30 +291,99 @@ function extractFingerprintFeatures(mask, W, H) {
 // ── Distance entre vecteurs optimisés ─────────────────────────────────────────
 function euclideanDistance(a, b) {
   if (!a || !b || a.length !== b.length) return Infinity;
-  return Math.sqrt(a.reduce((sum, v, i) => sum + (v - b[i])**2, 0));
+  return Math.sqrt(a.reduce((sum, value, index) => sum + (value - b[index]) ** 2, 0));
 }
 
 function cosineSimilarity(a, b) {
-  let dot = 0, normA = 0, normB = 0;
+  if (!a || !b || a.length !== b.length) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i]*b[i]; normA += a[i]*a[i]; normB += b[i]*b[i];
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
   }
-  return dot / (Math.sqrt(normA)*Math.sqrt(normB) || 1);
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB) || 1);
 }
 
-// Normaliser un vecteur pour la comparaison
-function normalizeVector(v) {
-  const norm = Math.sqrt(v.reduce((s,x)=>s+x*x,0))||1;
-  return v.map(x=>x/norm);
+function normalizeVector(vector) {
+  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+  return vector.map(value => value / norm);
 }
 
-// Deux vecteurs biométriques sont identiques (à 4 décimales près)
+function validVector(vector, expectedLength) {
+  return Array.isArray(vector) &&
+    vector.length === expectedLength &&
+    vector.every(value => Number.isFinite(Number(value)));
+}
+
+// Compare deux signatures rétiniennes avec des tolérances propres à chaque feature.
+// La même image donne 100 %. Deux acquisitions très proches du même œil peuvent
+// être acceptées sans exiger une égalité numérique impossible au pixel près.
+function compareRetinaVectors(a, b) {
+  if (!validVector(a, 5) || !validVector(b, 5)) {
+    return { match:false, similarity:0, distance:Infinity, within:0, deltas:[] };
+  }
+
+  const av = a.map(Number);
+  const bv = b.map(Number);
+  const average = (x, y, floor=1e-6) => Math.max((Math.abs(x) + Math.abs(y)) / 2, floor);
+
+  const deltas = [
+    Math.abs(av[0] - bv[0]) / average(av[0], bv[0], 1) / 0.04, // OvLen : ±4 %
+    Math.abs(av[1] - bv[1]) / 0.03,                             // TI
+    Math.abs(av[2] - bv[2]) / 0.03,                             // MedTor
+    Math.abs(av[3] - bv[3]) / average(av[3], bv[3], 0.5) / 0.10, // D1 : ±10 %
+    Math.abs(av[4] - bv[4]) / average(av[4], bv[4], 0.5) / 0.12, // D2 : ±12 %
+  ];
+
+  const weights = [0.35, 0.20, 0.15, 0.15, 0.15];
+  const distance = deltas.reduce(
+    (sum, delta, index) => sum + Math.min(delta, 4) * weights[index],
+    0
+  );
+  const within = deltas.filter(delta => delta <= 1).length;
+  const similarity = Math.max(0, Math.min(100, 100 * Math.exp(-0.8 * distance)));
+  const exact = av.every((value, index) => value.toFixed(4) === bv[index].toFixed(4));
+  const match = exact || (within >= 4 && distance <= 0.85 && similarity >= 50);
+
+  return { match, similarity, distance, within, deltas, exact };
+}
+
+function compareFingerprintVectors(a, b) {
+  if (!validVector(a, 6) || !validVector(b, 6)) {
+    return { match:false, similarity:0, distance:Infinity, within:0, deltas:[] };
+  }
+
+  const av = a.map(Number);
+  const bv = b.map(Number);
+  const average = (x, y, floor=1e-6) => Math.max((Math.abs(x) + Math.abs(y)) / 2, floor);
+
+  const deltas = [
+    Math.abs(av[0] - bv[0]) / average(av[0], bv[0], 10) / 0.08,
+    Math.abs(av[1] - bv[1]) / average(av[1], bv[1], 10) / 0.10,
+    Math.abs(av[2] - bv[2]) / average(av[2], bv[2], 3) / 0.15,
+    Math.abs(av[3] - bv[3]) / average(av[3], bv[3], 1) / 0.08,
+    Math.abs(av[4] - bv[4]) / 0.15,
+    Math.abs(av[5] - bv[5]) / 0.15,
+  ];
+
+  const weights = [0.25, 0.18, 0.12, 0.18, 0.14, 0.13];
+  const distance = deltas.reduce(
+    (sum, delta, index) => sum + Math.min(delta, 4) * weights[index],
+    0
+  );
+  const within = deltas.filter(delta => delta <= 1).length;
+  const similarity = Math.max(0, Math.min(100, 100 * Math.exp(-0.8 * distance)));
+  const exact = av.every((value, index) => value.toFixed(4) === bv[index].toFixed(4));
+  const match = exact || (within >= 5 && distance <= 0.85 && similarity >= 50);
+
+  return { match, similarity, distance, within, deltas, exact };
+}
+
 function vectorsMatch(a, b) {
-  if (!a || !b || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (Number(a[i]).toFixed(4) !== Number(b[i]).toFixed(4)) return false;
-  }
-  return true;
+  return compareRetinaVectors(a, b).match;
 }
 
 // ─── Segmentation biométrique ────────────────────────────────────────────────
@@ -1548,7 +1617,8 @@ function LoginPage({ onLogin, users, onRegister }) {
     const u = users[username];
     if (!u || u.password!==password) { setErr("Identifiants incorrects."); return; }
     if (u.role!==tab) { setErr(`Ce compte est de type "${u.role==="Administrateur"?"Administrateur":"Utilisateur"}". Changez d'onglet.`); return; }
-    if (u.pendingValidation) { setErr("Compte en attente de validation médicale (24–48h)."); return; }
+    if (u.disabled) { setErr("Ce compte a été suspendu par un administrateur."); return; }
+    if (u.pendingValidation) { setErr("Compte en attente de validation par un administrateur."); return; }
 
     // Vérification biométrique : la rétine doit correspondre à celle enrôlée par l'admin
     if (u.role === "client") {
@@ -1557,9 +1627,10 @@ function LoginPage({ onLogin, users, onRegister }) {
       setLoading(true); setErr("");
       try {
         const res = await processBiometric(retineFile, "retine");
-        if (!vectorsMatch(res.optimizedArray, u.retineVector)) {
+        const comparison = compareRetinaVectors(res.optimizedArray, u.retineVector);
+        if (!comparison.match) {
           setLoading(false);
-          setErr("Rétine non reconnue — accès refusé.");
+          setErr(`Rétine non reconnue — similarité ${comparison.similarity.toFixed(1)} %.`);
           return;
         }
       } catch(e) {
@@ -1862,37 +1933,52 @@ function ResultsPanel({ result, accentColor=C.primary, onNew, onEnroll, onAuth }
       <div style={{ fontSize:52, marginBottom:16 }}>🧬</div>
       <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>Aucune analyse effectuée</div>
       <div style={{ marginBottom:24 }}>Importez une image rétinienne pour lancer le pipeline.</div>
-      {onNew&&<button style={mkBtn("primary",accentColor)} onClick={onNew}>{Ic.scan}&nbsp;Analyser une image</button>}
+      {onNew && <button style={mkBtn("primary",accentColor)} onClick={onNew}>{Ic.scan}&nbsp;Analyser une image</button>}
     </div>
   );
 
   const retine = result.retine;
   const empreinte = result.empreinte;
   const isDouble = result.securityMode === "double";
+  const retinaKeys = ["OvLen","TI","MedTor","D1","D2"];
+  const fingerprintKeys = ["nbMinutiae","nbBifurcations","nbTerminations","minutiaeDensity","meanOrientation","orientationVariation"];
 
-  // Affichage d'un bloc de vecteur
-  const VectorBlock = ({ title, data, color, keys }) => (
-    <div style={{ marginBottom:16 }}>
+  const FullVectorBlock = ({ title, data, keys, color }) => (
+    <div>
       <div style={{ fontWeight:700, fontSize:13, color, marginBottom:8, textTransform:"uppercase", letterSpacing:"0.05em" }}>{title}</div>
       <div style={{ background:"#080F1E", borderRadius:10, padding:"14px 16px", fontFamily:"monospace", fontSize:11, lineHeight:1.9 }}>
-        {keys ? keys.map((k,i)=>(
-          <div key={k}>
-            <span style={{ color:"#94A3B8" }}>{k}: </span>
-            <span style={{ color:"#4ADE80", fontWeight:700 }}>{typeof data[k]==='number'?data[k].toFixed(6):data[k]}</span>
-          </div>
-        )) : Object.entries(data).map(([k,v])=>(
-          <div key={k}>
-            <span style={{ color:"#94A3B8" }}>{k}: </span>
-            <span style={{ color:"#60A5FA" }}>{typeof v==='number'?v.toFixed(6):v}</span>
+        {keys.map(key => (
+          <div key={key}>
+            <span style={{ color:"#94A3B8" }}>{key}: </span>
+            <span style={{ color:"#60A5FA" }}>{typeof data[key] === "number" ? data[key].toFixed(6) : data[key]}</span>
           </div>
         ))}
       </div>
     </div>
   );
 
+  const OptimizedVector = ({ title, vector, keys, color }) => (
+    <div>
+      <div style={{ fontWeight:800, fontSize:16, marginBottom:5 }}>{title}</div>
+      <div style={{ color:C.sub, fontSize:12, marginBottom:18 }}>Signature utilisée pour l'authentification biométrique</div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:12, marginBottom:18 }}>
+        {keys.map((key, index) => (
+          <div key={key} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px" }}>
+            <div style={{ color:C.muted, fontSize:11, fontWeight:700, marginBottom:6 }}>{key}</div>
+            <div style={{ color, fontFamily:"monospace", fontSize:18, fontWeight:800, wordBreak:"break-all" }}>
+              {Number(vector[index]).toFixed(6)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ background:"#080F1E", borderRadius:10, padding:"16px", fontFamily:"monospace", fontSize:12, color:"#4ADE80", lineHeight:1.7, wordBreak:"break-word" }}>
+        [{vector.map(value => Number(value).toFixed(4)).join(", ")}]
+      </div>
+    </div>
+  );
+
   return (
     <>
-      {/* Header */}
       <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:12 }}>
         <div>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
@@ -1902,125 +1988,116 @@ function ResultsPanel({ result, accentColor=C.primary, onNew, onEnroll, onAuth }
             {isDouble && <span style={mkBadge(C.warning)}>🔒 Sécurité renforcée</span>}
             <span style={{ color:C.muted, fontSize:13 }}>{result.UtilisateurId}</span>
           </div>
-          <h2 style={{ fontSize:18, fontWeight:800 }}>Segmentation · Squelette · Vecteurs biométriques</h2>
+          <h2 style={{ fontSize:18, fontWeight:800 }}>Segmentation · Squelette · Signature biométrique</h2>
         </div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           {onNew && <button style={mkBtn("ghost")} onClick={onNew}>{Ic.scan}&nbsp;Nouvelle analyse</button>}
-          {onEnroll && <button style={mkBtn("soft",C.success)} onClick={()=>onEnroll(result)}>{Ic.plus}&nbsp;Enrôler</button>}
-          {onAuth && <button style={mkBtn("primary",accentColor)} onClick={()=>onAuth(result)}>{Ic.search}&nbsp;Authentifier</button>}
+          {onEnroll && <button style={mkBtn("soft",C.success)} onClick={() => onEnroll(result)}>{Ic.plus}&nbsp;Enrôler</button>}
+          {onAuth && <button style={mkBtn("primary",accentColor)} onClick={() => onAuth(result)}>{Ic.search}&nbsp;Authentifier</button>}
         </div>
       </div>
 
-      {/* Images rétine */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
-        <div style={base.card}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-            <div style={{ fontWeight:700, fontSize:14 }}>👁️ Visualisation rétine</div>
-            <div style={{ display:"flex", gap:6 }}>
-              {[["overlay","Superposition"],["mask","Masque"],["skel","Squelette"],["original","Original"]].map(([v,l])=>(
-                <button key={v} style={{ ...mkBtn((showSkel?v==="skel":v===viewMode)&&!showSkel||showSkel&&v==="skel"?"primary":"ghost",accentColor), padding:"4px 9px", fontSize:11 }}
-                  onClick={()=>{if(v==="skel"){setShowSkel(true);}else{setShowSkel(false);setViewMode(v);}}}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ background:"#080F1E", borderRadius:10, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", height:260 }}>
-            <img key={showSkel?"skel":viewMode}
-              src={showSkel?retine.skelUrl:viewMode==="mask"?retine.maskUrl:viewMode==="original"?retine.originalUrl:retine.overlayUrl}
-              alt="rétine" style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain" }} />
-          </div>
-          <div style={{ marginTop:8, fontSize:11, color:C.muted, textAlign:"center" }}>
-            {showSkel?"📐 Squelette vasculaire (1px d'épaisseur)":viewMode==="overlay"?"🔴 Rouge = vaisseaux":viewMode==="mask"?"⬜ Masque binaire":"🖼️ Original"}
-          </div>
-          {/* Stats rapides rétine */}
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginTop:12 }}>
-            {[
-              ["OvLen", retine.stats.OvLen?.toFixed(0)||"-", "Longueur totale"],
-              ["TI", retine.stats.TI?.toFixed(3)||"-", "Tortuosité"],
-              ["D1", retine.stats.D1?.toFixed(2)||"-", "Diamètre moy."],
-            ].map(([k,v,l])=>(
-              <div key={k} style={{ background:C.bg, borderRadius:8, padding:"8px", border:`1px solid ${C.border}`, textAlign:"center" }}>
-                <div style={{ fontWeight:800, fontSize:16, color:accentColor }}>{v}</div>
-                <div style={{ fontSize:10, color:C.muted, marginTop:1 }}>{l}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Empreinte si mode double */}
-        {isDouble && empreinte ? (
+      <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(380px,1fr)", gap:20, alignItems:"stretch" }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
           <div style={base.card}>
-            <div style={{ fontWeight:700, fontSize:14, marginBottom:12 }}>🫆 Visualisation empreinte</div>
-            <div style={{ background:"#080F1E", borderRadius:10, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", height:260 }}>
-              <img src={empreinte.maskUrl} alt="empreinte" style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain" }} />
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, gap:10, flexWrap:"wrap" }}>
+              <div style={{ fontWeight:700, fontSize:14 }}>👁️ Visualisation rétine</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {[["overlay","Superposition"],["mask","Masque"],["skel","Squelette"],["original","Original"]].map(([value,label]) => (
+                  <button
+                    key={value}
+                    style={{ ...mkBtn((showSkel && value === "skel") || (!showSkel && value === viewMode) ? "primary" : "ghost",accentColor), padding:"4px 9px", fontSize:11 }}
+                    onClick={() => {
+                      if (value === "skel") setShowSkel(true);
+                      else { setShowSkel(false); setViewMode(value); }
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div style={{ marginTop:8, fontSize:11, color:C.muted, textAlign:"center" }}>⬜ Crêtes segmentées</div>
+            <div style={{ background:"#080F1E", borderRadius:10, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", height:300 }}>
+              <img
+                key={showSkel ? "skel" : viewMode}
+                src={showSkel ? retine.skelUrl : viewMode === "mask" ? retine.maskUrl : viewMode === "original" ? retine.originalUrl : retine.overlayUrl}
+                alt="rétine"
+                style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain" }}
+              />
+            </div>
+            <div style={{ marginTop:8, fontSize:11, color:C.muted, textAlign:"center" }}>
+              {showSkel ? "📐 Squelette vasculaire (1px d'épaisseur)" : viewMode === "overlay" ? "🔴 Rouge = vaisseaux" : viewMode === "mask" ? "⬜ Masque binaire" : "🖼️ Original"}
+            </div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginTop:12 }}>
               {[
-                ["Minuties", empreinte.stats.nbMinutiae||"-", "Total"],
-                ["Bifurc.", empreinte.stats.nbBifurcations||"-", "Bifurcations"],
-                ["Term.", empreinte.stats.nbTerminations||"-", "Terminaisons"],
-              ].map(([k,v,l])=>(
-                <div key={k} style={{ background:C.bg, borderRadius:8, padding:"8px", border:`1px solid ${C.border}`, textAlign:"center" }}>
-                  <div style={{ fontWeight:800, fontSize:16, color:C.accent }}>{v}</div>
-                  <div style={{ fontSize:10, color:C.muted, marginTop:1 }}>{l}</div>
+                ["OvLen", retine.stats.OvLen?.toFixed(0) || "-", "Longueur totale"],
+                ["TI", retine.stats.TI?.toFixed(3) || "-", "Tortuosité"],
+                ["D1", retine.stats.D1?.toFixed(2) || "-", "Diamètre moyen"],
+              ].map(([key,value,label]) => (
+                <div key={key} style={{ background:C.bg, borderRadius:8, padding:"8px", border:`1px solid ${C.border}`, textAlign:"center" }}>
+                  <div style={{ fontWeight:800, fontSize:16, color:accentColor }}>{value}</div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:1 }}>{label}</div>
                 </div>
               ))}
             </div>
           </div>
-        ) : (
-          <div style={{ ...base.card, display:"flex", flexDirection:"column", gap:12 }}>
-            <div style={{ fontWeight:700, fontSize:14, marginBottom:4 }}>🧬 Vecteur optimisé rétine</div>
-            <div style={{ color:C.sub, fontSize:12, marginBottom:4 }}>5 features — utilisé pour l'authentification</div>
-            <VectorBlock title="Features optimisées" data={retine.optimizedVector}
-              color={accentColor} keys={["OvLen","TI","MedTor","D1","D2"]} />
-            <div style={{ padding:"10px 12px", background:C.primaryLight, borderRadius:8, fontSize:12, color:C.primary }}>
-              💡 Ces 5 features sont enregistrées dans la base lors de l'enrôlement
-            </div>
-          </div>
-        )}
-      </div>
 
-      {/* Vecteurs complets */}
-      <div style={{ display:"grid", gridTemplateColumns: isDouble?"1fr 1fr 1fr 1fr":"1fr 1fr", gap:20 }}>
-        {/* Vecteur complet rétine */}
-        <div style={base.card}>
-          <div style={{ fontWeight:700, fontSize:14, marginBottom:8 }}>📊 Vecteur complet rétine</div>
-          <div style={{ color:C.sub, fontSize:12, marginBottom:12 }}>{Object.keys(retine.fullVector).length} features extraites</div>
-          <VectorBlock title="Morphologie vasculaire" data={retine.fullVector} color={C.primary}
-            keys={["OvLen","TI","MedTor","D1","D2","nbSegments","nbBifurcations","nbTerminations","density"]} />
+          <div style={base.card}>
+            <div style={{ fontWeight:700, fontSize:14, marginBottom:8 }}>📊 Détails d'extraction rétine</div>
+            <div style={{ color:C.sub, fontSize:12, marginBottom:12 }}>{Object.keys(retine.fullVector).length} mesures calculées</div>
+            <FullVectorBlock
+              title="Morphologie vasculaire"
+              data={retine.fullVector}
+              color={C.primary}
+              keys={["OvLen","TI","MedTor","D1","D2","nbSegments","nbBifurcations","nbTerminations","density"]}
+            />
+          </div>
+
+          {isDouble && empreinte && (
+            <>
+              <div style={base.card}>
+                <div style={{ fontWeight:700, fontSize:14, marginBottom:12 }}>🫆 Visualisation empreinte</div>
+                <div style={{ background:"#080F1E", borderRadius:10, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", height:260 }}>
+                  <img src={empreinte.maskUrl} alt="empreinte" style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain" }} />
+                </div>
+              </div>
+              <div style={base.card}>
+                <FullVectorBlock
+                  title="Détails empreinte"
+                  data={empreinte.fullVector}
+                  color={C.accent}
+                  keys={["nbMinutiae","nbBifurcations","nbTerminations","minutiaeDensity","meanOrientation","orientationVariation","density"]}
+                />
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Vecteur optimisé rétine */}
-        <div style={base.card}>
-          <div style={{ fontWeight:700, fontSize:14, marginBottom:8 }}>⚡ Vecteur optimisé rétine</div>
-          <div style={{ color:C.sub, fontSize:12, marginBottom:12 }}>5 features · utilisé pour l'authentification</div>
-          <VectorBlock title="Features optimisées" data={retine.optimizedVector}
-            color={accentColor} keys={["OvLen","TI","MedTor","D1","D2"]} />
-          <div style={{ marginTop:12, background:"#080F1E", borderRadius:8, padding:"10px 12px", fontFamily:"monospace", fontSize:11, color:"#4ADE80" }}>
-            [{retine.optimizedArray.map(v=>v.toFixed(4)).join(", ")}]
+        <div style={{ ...base.card, display:"flex", flexDirection:"column", justifyContent:"space-between", minHeight:620 }}>
+          <div>
+            <OptimizedVector
+              title="⚡ Vecteur optimisé rétine"
+              vector={retine.optimizedArray}
+              keys={retinaKeys}
+              color={accentColor}
+            />
+
+            {isDouble && empreinte && (
+              <div style={{ borderTop:`1px solid ${C.border}`, marginTop:26, paddingTop:26 }}>
+                <OptimizedVector
+                  title="🫆 Vecteur optimisé empreinte"
+                  vector={empreinte.optimizedArray}
+                  keys={fingerprintKeys}
+                  color={C.accent}
+                />
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop:28, padding:"14px 16px", background:C.primaryLight, borderRadius:10, color:C.primary, fontSize:12, lineHeight:1.6 }}>
+            🔒 Une seule signature rétinienne optimisée est affichée et utilisée par les fonctions d'enrôlement, de comparaison et d'authentification.
           </div>
         </div>
-
-        {/* Vecteurs empreinte si double */}
-        {isDouble && empreinte && <>
-          <div style={base.card}>
-            <div style={{ fontWeight:700, fontSize:14, marginBottom:8 }}>📊 Vecteur complet empreinte</div>
-            <div style={{ color:C.sub, fontSize:12, marginBottom:12 }}>{Object.keys(empreinte.fullVector).length} features extraites</div>
-            <VectorBlock title="Minuties & orientations" data={empreinte.fullVector} color={C.accent}
-              keys={["nbMinutiae","nbBifurcations","nbTerminations","minutiaeDensity","meanOrientation","orientationVariation","density"]} />
-          </div>
-          <div style={base.card}>
-            <div style={{ fontWeight:700, fontSize:14, marginBottom:8 }}>⚡ Vecteur optimisé empreinte</div>
-            <div style={{ color:C.sub, fontSize:12, marginBottom:12 }}>6 features · authentification renforcée</div>
-            <VectorBlock title="Features optimisées" data={empreinte.optimizedVector} color={C.accent}
-              keys={["nbMinutiae","nbBifurcations","nbTerminations","minutiaeDensity","meanOrientation","orientationVariation"]} />
-            <div style={{ marginTop:12, background:"#080F1E", borderRadius:8, padding:"10px 12px", fontFamily:"monospace", fontSize:11, color:"#60A5FA" }}>
-              [{empreinte.optimizedArray.map(v=>v.toFixed(4)).join(", ")}]
-            </div>
-          </div>
-        </>}
       </div>
     </>
   );
@@ -2073,78 +2150,78 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   // ── Authentification ──────────────────────────────────────────────────────
   const runAuth = async () => {
     if (!authFileR || database.length === 0) return;
-    setLoading(true); setMsg("Calcul du vecteur rétine..."); setAuthResult(null);
+    if (authMode === "double" && !authFileE) return;
+
+    setLoading(true);
+    setMsg("Calcul du vecteur rétine...");
+    setAuthResult(null);
+
     try {
       const retineRes = await processBiometric(authFileR, "retine");
       let empreinteRes = null;
-      if (authMode === "double" && authFileE) {
+
+      if (authMode === "double") {
         setMsg("Calcul du vecteur empreinte...");
-        await new Promise(r=>setTimeout(r,300));
         empreinteRes = await processBiometric(authFileE, "empreinte");
       }
+
       setMsg("Comparaison avec la base...");
-      await new Promise(r=>setTimeout(r,300));
-
-      // Comparer avec chaque entrée de la base
-      function sameVector(v1, v2) {
-        if (!v1 || !v2 || v1.length !== v2.length) return false;
-
-        for (let i = 0; i < v1.length; i++) {
-          if (Number(v1[i]).toFixed(4) !== Number(v2[i]).toFixed(4)) {
-             return false;
-          }
-        }
-
-        return true;
-      }
 
       const results = database.map(entry => {
-        const retineMatch = sameVector(
+        const retinaComparison = compareRetinaVectors(
           retineRes.optimizedArray,
           entry.retineVector
         );
 
-        let empreinteMatch = false;
-
-        if (authMode === "double") {
-          empreinteMatch = sameVector(
-            empreinteRes?.optimizedArray,
-            entry.empreinteVector
-          );
-        }
+        const fingerprintComparison = authMode === "double"
+          ? compareFingerprintVectors(
+              empreinteRes?.optimizedArray,
+              entry.empreinteVector
+            )
+          : null;
 
         const globalMatch = authMode === "double"
-          ? retineMatch && empreinteMatch
-          : retineMatch;
+          ? retinaComparison.match && fingerprintComparison?.match
+          : retinaComparison.match;
+
+        const globalSimilarity = authMode === "double"
+          ? (retinaComparison.similarity + (fingerprintComparison?.similarity || 0)) / 2
+          : retinaComparison.similarity;
 
         return {
           ...entry,
-          retineDist: retineMatch ? 0 : 1,
-          empreinteDist: empreinteMatch ? 0 : 1,
-          retineMatch,
-          empreinteMatch,
+          retineDist: retinaComparison.distance,
+          empreinteDist: fingerprintComparison?.distance ?? null,
+          retineSimilarity: retinaComparison.similarity,
+          empreinteSimilarity: fingerprintComparison?.similarity ?? null,
+          retineMatch: retinaComparison.match,
+          empreinteMatch: fingerprintComparison?.match ?? false,
           globalMatch,
-          globalScore: globalMatch ? 0 : 1
+          globalSimilarity,
+          globalScore: 100 - globalSimilarity,
         };
       });
 
-      results.sort((a, b) => a.globalScore - b.globalScore);
-      
-      const bestMatch = results.find(r => r.globalMatch);
+      results.sort((a, b) => b.globalSimilarity - a.globalSimilarity);
+      const bestMatch = results.find(result => result.globalMatch);
 
-      if (bestMatch) {
-        setAccessPopup({
-        status: "autorise",
-        name: bestMatch.name,
-        });
-      } else {
-        setAccessPopup({
-          status: "refuse",
-          name: null,
-        });
-      }
-      setAuthResult({ results, retineVec: retineRes.optimizedArray, empreinteVec: empreinteRes?.optimizedArray });
-    } finally { setLoading(false); setMsg(""); }
+      setAccessPopup(bestMatch
+        ? { status:"autorise", name:bestMatch.name, similarity:bestMatch.globalSimilarity }
+        : { status:"refuse", name:null, similarity:results[0]?.globalSimilarity || 0 }
+      );
+
+      setAuthResult({
+        results,
+        retineVec:retineRes.optimizedArray,
+        empreinteVec:empreinteRes?.optimizedArray || null,
+      });
+    } catch (error) {
+      setAccessPopup({ status:"refuse", name:null, similarity:0 });
+      setAuthResult(null);
+    } finally {
+      setLoading(false);
+      setMsg("");
+    }
   };
 
   return (
@@ -2184,10 +2261,13 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
             </h2>
 
             {accessPopup.name && (
-              <p style={{ fontSize:16, color:C.text, marginBottom:20 }}>
+              <p style={{ fontSize:16, color:C.text, marginBottom:8 }}>
                 Utilisateur reconnu : <strong>{accessPopup.name}</strong>
               </p>
             )}
+            <p style={{ fontSize:13, color:C.sub, marginBottom:20 }}>
+              Similarité biométrique : <strong>{Number(accessPopup.similarity || 0).toFixed(1)}%</strong>
+            </p>
 
             <button
               style={{ ...mkBtn("primary", accessPopup.status === "autorise" ? C.success : C.red) }}
@@ -2344,11 +2424,11 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
             )}
 
             <div style={{ padding:"10px 12px", background:C.bg, borderRadius:8, border:`1px solid ${C.border}`, fontSize:12, color:C.muted, marginBottom:16 }}>
-              Seuil rétine : d ≤ {THRESHOLD_RETINE} · Seuil empreinte : d ≤ {THRESHOLD_EMPREINTE}
+              Comparaison multi-critères : longueur vasculaire, tortuosité et diamètres. La même image produit 100 % de similarité.
             </div>
 
-            <button style={{ ...mkBtn("primary",accentColor), width:"100%", padding:"13px", opacity:(!authFileR||loading)?0.5:1 }}
-              disabled={!authFileR||loading} onClick={runAuth}>
+            <button style={{ ...mkBtn("primary",accentColor), width:"100%", padding:"13px", opacity:(!authFileR || (authMode==="double"&&!authFileE) || loading)?0.5:1 }}
+              disabled={!authFileR || (authMode==="double"&&!authFileE) || loading} onClick={runAuth}>
               {loading?<><span style={{ animation:"spin 1s linear infinite", display:"inline-block" }}>⟳</span>&nbsp;{msg}</>:<>{Ic.search}&nbsp;Lancer l'authentification</>}
             </button>
           </div>
@@ -2364,7 +2444,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
             ) : (
               <>
                 {authResult.results.map((r,i)=>{
-                  const retinePct = Math.max(0, Math.min(100, (1-r.retineDist/0.5)*100));
+                  const retinePct = r.retineSimilarity;
                   return (
                     <div key={r.id} style={{ border:`2px solid ${r.globalMatch?C.success:i===0?C.warning:C.border}`, borderRadius:11, padding:"14px", marginBottom:12, background:r.globalMatch?C.successBg:C.surface }}>
                       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
@@ -2372,8 +2452,8 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
                         <span style={mkChip(r.globalMatch?C.success:C.red)}>{r.globalMatch?"✓ Identifié":"✗ Non identifié"}</span>
                       </div>
                       <div style={{ fontSize:12, color:C.sub, marginBottom:8 }}>
-                        👁️ Distance rétine : <strong style={{ color:r.retineMatch?C.success:C.red }}>{r.retineDist.toFixed(4)}</strong>
-                        {r.empreinteDist !== null && <> · 🫆 Distance empreinte : <strong style={{ color:r.empreinteMatch?C.success:C.red }}>{r.empreinteDist.toFixed(4)}</strong></>}
+                        👁️ Similarité rétine : <strong style={{ color:r.retineMatch?C.success:C.red }}>{r.retineSimilarity.toFixed(1)}%</strong>
+                        {r.empreinteSimilarity !== null && <> · 🫆 Similarité empreinte : <strong style={{ color:r.empreinteMatch?C.success:C.red }}>{r.empreinteSimilarity.toFixed(1)}%</strong></>}
                       </div>
                       <div style={{ height:6, background:C.border, borderRadius:4, overflow:"hidden", position:"relative" }}>
                         <div style={{ position:"absolute", top:0, left:0, height:"100%", width:`${retinePct}%`, background:r.retineMatch?C.success:C.red, borderRadius:4 }}/>
@@ -2448,6 +2528,7 @@ function CreateUserPanel({ users, onCreateUser, database, setDatabase, accentCol
     // 2. Enrôlement biométrique (rétine obligatoire + empreinte optionnelle)
     setDatabase(prev => [...prev, {
       id: Date.now().toString(),
+      username,
       name: fullName,
       date: new Date().toLocaleString("fr-FR").slice(0,16),
       retineVector: bio.retine.optimizedArray,
@@ -2557,203 +2638,617 @@ function CreateUserPanel({ users, onCreateUser, database, setDatabase, accentCol
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// GESTION DES COMPTES — administrateurs et utilisateurs
+// ═══════════════════════════════════════════════════════════════════════════════
+function AccountManagementPanel({
+  users,
+  currentUser,
+  onCreateUser,
+  onUpdateUser,
+  onDeleteUser,
+  database,
+  setDatabase,
+  accentColor=C.primary,
+  initialTab="clients",
+}) {
+  const [tab, setTab] = useState(initialTab);
+  const [clientView, setClientView] = useState("list");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [adminForm, setAdminForm] = useState({ name:"", username:"", email:"", password:"" });
+  const [editing, setEditing] = useState(null);
+
+  const accounts = Object.entries(users);
+  const admins = accounts.filter(([, account]) => account.role === "Administrateur");
+  const clients = accounts.filter(([, account]) => account.role === "client");
+  const activeAdmins = admins.filter(([, account]) => !account.disabled && !account.pendingValidation);
+
+  useEffect(() => {
+    setTab(initialTab);
+    setClientView("list");
+    setError("");
+  }, [initialTab]);
+
+  const notify = message => {
+    setSuccess(message);
+    setError("");
+    window.setTimeout(() => setSuccess(""), 2600);
+  };
+
+  const createAdmin = () => {
+    const username = adminForm.username.trim();
+    if (!adminForm.name.trim()) return setError("Le nom complet est requis.");
+    if (username.length < 4) return setError("Identifiant trop court (4 caractères minimum).");
+    if (users[username]) return setError("Cet identifiant existe déjà.");
+    if (adminForm.email && !adminForm.email.includes("@")) return setError("Adresse email invalide.");
+    if (adminForm.password.length < 6) return setError("Le mot de passe doit contenir au moins 6 caractères.");
+
+    onCreateUser({
+      username,
+      password:adminForm.password,
+      role:"Administrateur",
+      name:adminForm.name.trim(),
+      email:adminForm.email.trim(),
+      validated:true,
+      pendingValidation:false,
+      disabled:false,
+      createdAt:new Date().toLocaleString("fr-FR").slice(0,16),
+    });
+    setAdminForm({ name:"", username:"", email:"", password:"" });
+    notify("Administrateur créé et activé.");
+  };
+
+  const approve = username => {
+    onUpdateUser(username, { pendingValidation:false, validated:true, disabled:false });
+    notify(`Le compte ${username} a été validé.`);
+  };
+
+  const toggleAccount = (username, account) => {
+    if (username === currentUser.username) {
+      setError("Vous ne pouvez pas suspendre votre propre compte.");
+      return;
+    }
+    if (account.role === "Administrateur" && !account.disabled && !account.pendingValidation && activeAdmins.length <= 1) {
+      setError("Impossible de suspendre le dernier administrateur actif.");
+      return;
+    }
+    onUpdateUser(username, { disabled:!account.disabled });
+    notify(account.disabled ? `Compte ${username} réactivé.` : `Compte ${username} suspendu.`);
+  };
+
+  const resetPassword = username => {
+    const password = window.prompt(`Nouveau mot de passe pour ${username} (6 caractères minimum) :`);
+    if (password === null) return;
+    if (password.length < 6) {
+      setError("Mot de passe trop court.");
+      return;
+    }
+    onUpdateUser(username, { password });
+    notify(`Mot de passe de ${username} réinitialisé.`);
+  };
+
+  const startEdit = (username, account) => {
+    setEditing({
+      originalUsername:username,
+      username,
+      name:account.name || "",
+      email:account.email || "",
+      password:"",
+      role:account.role,
+    });
+    setError("");
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    const nextUsername = editing.username.trim();
+    const nextName = editing.name.trim();
+    const nextEmail = editing.email.trim();
+
+    if (nextUsername.length < 4) return setError("Identifiant trop court (4 caractères minimum).");
+    if (!nextName) return setError("Le nom complet est requis.");
+    if (nextEmail && !nextEmail.includes("@")) return setError("Adresse email invalide.");
+    if (nextUsername !== editing.originalUsername && users[nextUsername]) return setError("Ce nouvel identifiant existe déjà.");
+    if (editing.password && editing.password.length < 6) return setError("Le nouveau mot de passe doit contenir au moins 6 caractères.");
+
+    const changes = {
+      name:nextName,
+      email:nextEmail,
+    };
+    if (editing.password) changes.password = editing.password;
+
+    onUpdateUser(editing.originalUsername, changes, nextUsername);
+
+    if (editing.role === "client") {
+      setDatabase(previous => previous.map(entry => {
+        const linkedByUsername = entry.username === editing.originalUsername;
+        const legacyNameMatch = !entry.username && entry.name === users[editing.originalUsername]?.name;
+        return linkedByUsername || legacyNameMatch
+          ? { ...entry, username:nextUsername, name:nextName }
+          : entry;
+      }));
+    }
+
+    setEditing(null);
+    notify(`Les informations de ${nextUsername} ont été modifiées.`);
+  };
+
+  const removeAccount = (username, account) => {
+    if (username === currentUser.username) {
+      setError("Vous ne pouvez pas supprimer votre propre compte.");
+      return;
+    }
+    if (account.role === "Administrateur" && !account.disabled && !account.pendingValidation && activeAdmins.length <= 1) {
+      setError("Impossible de supprimer le dernier administrateur actif.");
+      return;
+    }
+    if (!window.confirm(`Supprimer définitivement le compte ${username} ?`)) return;
+    onDeleteUser(username);
+    if (account.role === "client") {
+      setDatabase(previous => previous.filter(entry => entry.username !== username));
+    }
+    notify(`Compte ${username} supprimé.`);
+  };
+
+  const statusBadge = account => {
+    if (account.pendingValidation) return <span style={mkChip(C.warning)}>En attente</span>;
+    if (account.disabled) return <span style={mkChip(C.red)}>Suspendu</span>;
+    return <span style={mkChip(C.success)}>Actif</span>;
+  };
+
+  const AccountTable = ({ rows }) => (
+    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, overflow:"auto" }}>
+      <table style={{ width:"100%", borderCollapse:"collapse", minWidth:940 }}>
+        <thead>
+          <tr>
+            <th style={base.th}>Identifiant</th>
+            <th style={base.th}>Nom</th>
+            <th style={base.th}>Email</th>
+            <th style={base.th}>Biométrie</th>
+            <th style={base.th}>Statut</th>
+            <th style={base.th}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([username, account], index) => (
+            <tr key={username} style={{ background:index % 2 === 0 ? C.surface : C.bg }}>
+              <td style={base.td}>
+                <code style={{ color:accentColor, fontWeight:700 }}>{username}</code>
+                {username === currentUser.username && <span style={{ ...mkBadge(C.primary), marginLeft:8 }}>Vous</span>}
+              </td>
+              <td style={{ ...base.td, fontWeight:700 }}>{account.name}</td>
+              <td style={{ ...base.td, color:C.sub }}>{account.email || "—"}</td>
+              <td style={base.td}>
+                {account.role === "client"
+                  ? <span style={mkChip(account.retineVector ? C.success : C.warning)}>{account.retineVector ? "Rétine enrôlée" : "Non enrôlée"}</span>
+                  : <span style={mkBadge(C.primary)}>Compte admin</span>}
+              </td>
+              <td style={base.td}>{statusBadge(account)}</td>
+              <td style={base.td}>
+                <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+                  {account.pendingValidation && (
+                    <button style={{ ...mkBtn("soft",C.success), padding:"6px 10px", fontSize:12 }} onClick={() => approve(username)}>Valider</button>
+                  )}
+                  <button style={{ ...mkBtn("soft",C.primary), padding:"6px 10px", fontSize:12 }} onClick={() => startEdit(username, account)}>Modifier</button>
+                  <button style={{ ...mkBtn("soft",account.disabled ? C.success : C.warning), padding:"6px 10px", fontSize:12 }} onClick={() => toggleAccount(username, account)}>
+                    {account.disabled ? "Réactiver" : "Suspendre"}
+                  </button>
+                  <button style={{ ...mkBtn("soft",C.primary), padding:"6px 10px", fontSize:12 }} onClick={() => resetPassword(username)}>Mot de passe</button>
+                  <button style={{ ...mkBtn("soft",C.red), padding:"6px 10px", fontSize:12 }} onClick={() => removeAccount(username, account)}>Supprimer</button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <>
+      {editing && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,0.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999, padding:20 }}>
+          <div style={{ ...base.card, width:460, maxWidth:"100%", boxShadow:"0 24px 70px rgba(0,0,0,0.28)" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
+              <div>
+                <div style={{ fontWeight:900, fontSize:18 }}>Modifier le compte</div>
+                <div style={{ color:C.sub, fontSize:12, marginTop:3 }}>{editing.role === "Administrateur" ? "Administrateur" : "Utilisateur"}</div>
+              </div>
+              <button style={{ ...mkBtn("ghost"), padding:"7px 10px" }} onClick={() => setEditing(null)}>✕</button>
+            </div>
+            <label style={base.label}>Nom complet *</label>
+            <input style={base.input} value={editing.name} onChange={event => setEditing(previous => ({ ...previous, name:event.target.value }))} />
+            <label style={base.label}>Identifiant *</label>
+            <input style={base.input} value={editing.username} onChange={event => setEditing(previous => ({ ...previous, username:event.target.value }))} />
+            <label style={base.label}>Email</label>
+            <input style={base.input} type="email" value={editing.email} onChange={event => setEditing(previous => ({ ...previous, email:event.target.value }))} />
+            <label style={base.label}>Nouveau mot de passe (optionnel)</label>
+            <input style={base.input} type="password" value={editing.password} onChange={event => setEditing(previous => ({ ...previous, password:event.target.value }))} placeholder="Laisser vide pour ne pas changer" />
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button style={mkBtn("ghost")} onClick={() => setEditing(null)}>Annuler</button>
+              <button style={mkBtn("primary",accentColor)} onClick={saveEdit}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:16, flexWrap:"wrap", marginBottom:20 }}>
+        <div>
+          <h2 style={{ fontSize:19, fontWeight:800, marginBottom:4 }}>
+            {tab === "admins" ? "Gestion des administrateurs" : "Gestion des utilisateurs"}
+          </h2>
+          <p style={{ color:C.sub, fontSize:13 }}>
+            {tab === "admins"
+              ? "Créer, valider, modifier, suspendre et supprimer les comptes administrateurs."
+              : "Ajouter, modifier, suspendre, réactiver ou supprimer les comptes utilisateurs."}
+          </p>
+        </div>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          <span style={mkBadge(C.primary)}>{activeAdmins.length} admin(s) actif(s)</span>
+          <span style={mkBadge(C.accent)}>{clients.length} utilisateur(s)</span>
+          <span style={mkBadge(C.warning)}>{admins.filter(([, account]) => account.pendingValidation).length} demande(s)</span>
+        </div>
+      </div>
+
+      {error && <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}30`, borderRadius:9, padding:"11px 14px", marginBottom:14 }}>⚠ {error}</div>}
+      {success && <div style={{ background:C.successBg, color:C.success, border:`1px solid ${C.success}30`, borderRadius:9, padding:"11px 14px", marginBottom:14 }}>✓ {success}</div>}
+
+      {tab === "admins" && (
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(300px,0.8fr) minmax(0,1.7fr)", gap:20 }}>
+          <div style={base.card}>
+            <div style={{ fontWeight:800, fontSize:15, marginBottom:5 }}>Créer un administrateur</div>
+            <div style={{ color:C.sub, fontSize:12, marginBottom:16 }}>Le compte est actif immédiatement.</div>
+            <label style={base.label}>Nom complet *</label>
+            <input style={base.input} value={adminForm.name} onChange={event => setAdminForm(previous => ({ ...previous, name:event.target.value }))} placeholder="Prénom NOM" />
+            <label style={base.label}>Identifiant *</label>
+            <input style={base.input} value={adminForm.username} onChange={event => setAdminForm(previous => ({ ...previous, username:event.target.value }))} placeholder="4 caractères minimum" />
+            <label style={base.label}>Email</label>
+            <input style={base.input} type="email" value={adminForm.email} onChange={event => setAdminForm(previous => ({ ...previous, email:event.target.value }))} placeholder="email@exemple.fr" />
+            <label style={base.label}>Mot de passe *</label>
+            <input style={base.input} type="password" value={adminForm.password} onChange={event => setAdminForm(previous => ({ ...previous, password:event.target.value }))} placeholder="6 caractères minimum" />
+            <button style={{ ...mkBtn("primary",accentColor), width:"100%", padding:"12px" }} onClick={createAdmin}>{Ic.plus}&nbsp;Créer l'administrateur</button>
+          </div>
+          {admins.length ? <AccountTable rows={admins} /> : <div style={{ ...base.card, textAlign:"center", padding:48, color:C.muted }}>Aucun administrateur.</div>}
+        </div>
+      )}
+
+      {tab === "clients" && (
+        <>
+          <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+            <button style={mkBtn(clientView === "list" ? "primary" : "ghost",accentColor)} onClick={() => setClientView("list")}>Liste des utilisateurs</button>
+            <button style={mkBtn(clientView === "create" ? "primary" : "ghost",accentColor)} onClick={() => setClientView("create")}>{Ic.plus}&nbsp;Ajouter un utilisateur</button>
+          </div>
+          {clientView === "create" ? (
+            <CreateUserPanel
+              users={users}
+              onCreateUser={account => {
+                onCreateUser(account);
+                notify(`Utilisateur ${account.username} créé.`);
+              }}
+              database={database}
+              setDatabase={setDatabase}
+              accentColor={accentColor}
+            />
+          ) : clients.length ? (
+            <AccountTable rows={clients} />
+          ) : (
+            <div style={{ ...base.card, textAlign:"center", padding:"48px", color:C.muted }}>
+              <div style={{ fontSize:38, marginBottom:10 }}>👥</div>
+              <div style={{ marginBottom:16 }}>Aucun compte utilisateur.</div>
+              <button style={mkBtn("primary",accentColor)} onClick={() => setClientView("create")}>{Ic.plus}&nbsp;Ajouter le premier utilisateur</button>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMPARAISON DIRECTE DE DEUX RÉTINES
+// ═══════════════════════════════════════════════════════════════════════════════
+function RetinaComparisonPanel({ accentColor=C.primary }) {
+  const [fileA, setFileA] = useState(null);
+  const [fileB, setFileB] = useState(null);
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const refA = useRef();
+  const refB = useRef();
+
+  const run = async () => {
+    if (!fileA || !fileB) return;
+    setLoading(true);
+    setError("");
+    setResult(null);
+    try {
+      const [retinaA, retinaB] = await Promise.all([
+        processBiometric(fileA, "retine"),
+        processBiometric(fileB, "retine"),
+      ]);
+      const comparison = compareRetinaVectors(retinaA.optimizedArray, retinaB.optimizedArray);
+      setResult({ retinaA, retinaB, comparison });
+    } catch (exception) {
+      setError(`Comparaison impossible : ${exception.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const Drop = ({ file, setFile, inputRef, label }) => (
+    <>
+      <input ref={inputRef} type="file" accept=".png,.jpg,.jpeg,.bmp" style={{ display:"none" }} onChange={event => setFile(event.target.files[0] || null)} />
+      <div onClick={() => inputRef.current.click()} style={{ border:`2px dashed ${file ? C.success : C.border}`, borderRadius:11, padding:"28px 18px", textAlign:"center", cursor:"pointer", background:file ? C.successBg : C.bg }}>
+        <div style={{ fontSize:30, marginBottom:6 }}>{file ? "✅" : "👁️"}</div>
+        <div style={{ fontWeight:700, color:file ? C.success : accentColor, fontSize:13 }}>{file ? file.name : label}</div>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      <h2 style={{ fontSize:19, fontWeight:800, marginBottom:4 }}>Comparer deux rétines</h2>
+      <p style={{ color:C.sub, fontSize:13, marginBottom:20 }}>Les deux images passent exactement par le même masque, la même segmentation et le même calcul de signature.</p>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+        <div style={base.card}>
+          <div style={{ fontWeight:700, marginBottom:12 }}>Rétine A</div>
+          <Drop file={fileA} setFile={setFileA} inputRef={refA} label="Importer la première rétine" />
+        </div>
+        <div style={base.card}>
+          <div style={{ fontWeight:700, marginBottom:12 }}>Rétine B</div>
+          <Drop file={fileB} setFile={setFileB} inputRef={refB} label="Importer la seconde rétine" />
+        </div>
+      </div>
+
+      {error && <div style={{ background:C.redBg, color:C.red, borderRadius:9, padding:"11px 14px", marginBottom:14 }}>⚠ {error}</div>}
+      <button disabled={!fileA || !fileB || loading} onClick={run} style={{ ...mkBtn("primary",accentColor), padding:"12px 22px", opacity:!fileA || !fileB || loading ? 0.5 : 1, marginBottom:20 }}>
+        {loading ? "Analyse des deux rétines..." : "Comparer les signatures"}
+      </button>
+
+      {result && (
+        <div style={{ ...base.card, border:`2px solid ${result.comparison.match ? C.success : C.red}` }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:18 }}>
+            <div>
+              <div style={{ fontWeight:900, fontSize:20, color:result.comparison.match ? C.success : C.red }}>
+                {result.comparison.match ? "✓ Signatures compatibles" : "✗ Signatures différentes"}
+              </div>
+              <div style={{ color:C.sub, fontSize:13, marginTop:4 }}>
+                Similarité calculée : {result.comparison.similarity.toFixed(1)} %
+              </div>
+            </div>
+            <span style={mkChip(result.comparison.match ? C.success : C.red)}>
+              {result.comparison.exact ? "Correspondance exacte" : result.comparison.match ? "Correspondance tolérée" : "Non reconnu"}
+            </span>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+            {[result.retinaA.optimizedArray, result.retinaB.optimizedArray].map((vector, index) => (
+              <div key={index} style={{ background:"#080F1E", borderRadius:9, padding:"14px", fontFamily:"monospace", color:index === 0 ? "#4ADE80" : "#60A5FA", fontSize:12, wordBreak:"break-word" }}>
+                <div style={{ color:"#94A3B8", marginBottom:7 }}>Vecteur {index === 0 ? "A" : "B"}</div>
+                [{vector.map(value => Number(value).toFixed(4)).join(", ")}]
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // AdministrateurAPP
 // ═══════════════════════════════════════════════════════════════════════════════
-function AdministrateurApp({ user, users, onCreateUser, onLogout }) {
-  const [page, setPage]         = useState("dashboard");
-  const [result, setResult]     = useState(null);
-  const [database, setDatabase] = useState([
-  {
-    id: "camille",
-    name: "Camille",
-    date: "18/06/2026",
-    retineVector: [5937.0000, 1.5451, 1.2127, 2.8667, 3.1170],
-    empreinteVector: [41501.0000, 41498.0000, 3.0000, 953.3447, -0.0086, 1.9102],
-    hasEmpreinte: true,
-  },
-  {
-    id: "steven",
-    name: "Steven",
-    date: "19/06/2026",
-    retineVector: [6273.0000, 1.5488, 1.2000, 1.9130, 1.5993],
-    empreinteVector: [66111.0000, 66109.0000, 2.0000, 991.4667, -1.5095, 2.5649],
-    hasEmpreinte: true,
-  },
-  {
-    id: "tidar",
-    name: "Tidar",
-    date: "18/06/2026",
-    retineVector: [6413.0000, 1.6210, 1.2000, 2.9683, 3.0340],
-    empreinteVector: [60293.0000, 60291.0000, 2.0000, 999.1383, 0.4680, 1.8129],
-    hasEmpreinte: true,
-  },
-  {
-    id: "shanice",
-    name: "Shanice",
-    date: "18/06/2026",
-    retineVector: [6154.0000, 1.4684, 1.1770, 2.2308, 1.8462],
-    empreinteVector: [73165.0000, 73165.0000, 0.0000, 999.5492, 1.4086, 2.0869],
-    hasEmpreinte: true,
-  },
-  {
-    id: "aminata",
-    name: "Aminata",
-    date: "18/06/2026",
-    retineVector: [4941.0000, 1.5814, 1.1142, 2.1613, 1.8156],
-    empreinteVector: [69246.0000, 69244.0000, 2.0000, 999.7257, 1.2470, 1.9928],
-    hasEmpreinte: true,
-  },
-]);
-  const [history, setHistory]   = useState([]);
+function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUser, onLogout }) {
+  const [page, setPage] = useState("dashboard");
+  const [result, setResult] = useState(null);
+  const [history, setHistory] = useState([]);
 
-  const onResult = (res) => {
+  const [database, setDatabase] = useState(() => {
+    const fallback = [
+      { id:"camille", name:"Camille", date:"18/06/2026", retineVector:[5937,1.5451,1.2127,2.8667,3.1170], empreinteVector:[41501,41498,3,953.3447,-0.0086,1.9102], hasEmpreinte:true },
+      { id:"steven", name:"Steven", date:"19/06/2026", retineVector:[6273,1.5488,1.2,1.913,1.5993], empreinteVector:[66111,66109,2,991.4667,-1.5095,2.5649], hasEmpreinte:true },
+      { id:"tidar", name:"Tidar", date:"18/06/2026", retineVector:[6413,1.621,1.2,2.9683,3.034], empreinteVector:[60293,60291,2,999.1383,0.468,1.8129], hasEmpreinte:true },
+      { id:"shanice", name:"Shanice", date:"18/06/2026", retineVector:[6154,1.4684,1.177,2.2308,1.8462], empreinteVector:[73165,73165,0,999.5492,1.4086,2.0869], hasEmpreinte:true },
+      { id:"aminata", name:"Aminata", date:"18/06/2026", retineVector:[4941,1.5814,1.1142,2.1613,1.8156], empreinteVector:[69246,69244,2,999.7257,1.247,1.9928], hasEmpreinte:true },
+    ];
+    try {
+      const saved = localStorage.getItem("segvision_biometric_database_v2");
+      return saved ? JSON.parse(saved) : fallback;
+    } catch (error) {
+      return fallback;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("segvision_biometric_database_v2", JSON.stringify(database));
+    } catch (error) {
+      console.error("Impossible d'enregistrer la base biométrique", error);
+    }
+  }, [database]);
+
+  const onResult = res => {
     setResult(res);
-    setHistory(prev=>[{
+    setHistory(previous => [{
       id:`B-${Date.now().toString().slice(-4)}`,
-      date: res.date,
-      Utilisateur: res.UtilisateurId,
-      mode: res.securityMode==="double"?"Rétine + Empreinte":"Rétine",
+      date:res.date,
+      Utilisateur:res.UtilisateurId,
+      mode:res.securityMode === "double" ? "Rétine + Empreinte" : "Rétine",
       action:"Analyse",
-      result:"✓ Extrait"
-    }, ...prev]);
+      result:"✓ Extrait",
+    }, ...previous]);
     setPage("resultats");
   };
 
+  const adminCount = Object.values(users).filter(account => account.role === "Administrateur" && !account.disabled && !account.pendingValidation).length;
+  const clientCount = Object.values(users).filter(account => account.role === "client").length;
+
   const NAV = [
-    { id:"dashboard",  label:"Tableau de bord",    icon:Ic.grid },
-    { id:"utilisateurs", label:"Créer un utilisateur", icon:Ic.user },
-    { id:"analyse",    label:"Nouvelle analyse",    icon:Ic.scan },
-    { id:"resultats",  label:"Résultats",           icon:Ic.chart },
-    { id:"biometrie",  label:"Base biométrique",    icon:Ic.db },
-    { id:"historique", label:"Historique",          icon:Ic.clock },
-    { id:"securite",   label:"Sécurité",            icon:Ic.shield },
+    { id:"dashboard", label:"Tableau de bord", icon:Ic.grid },
+    { id:"admins", label:"Gestion des administrateurs", icon:Ic.shield },
+    { id:"utilisateurs", label:"Gestion des utilisateurs", icon:Ic.user },
+    { id:"analyse", label:"Nouvelle analyse", icon:Ic.scan },
+    { id:"resultats", label:"Résultats", icon:Ic.chart },
+    { id:"comparaison", label:"Comparer 2 rétines", icon:Ic.search },
+    { id:"biometrie", label:"Base biométrique", icon:Ic.db },
+    { id:"historique", label:"Historique", icon:Ic.clock },
+    { id:"securite", label:"Sécurité", icon:Ic.shield },
   ];
 
   return (
-    <Shell user={user} page={page} setPage={setPage} navItems={NAV} onLogout={onLogout}
-      sidebarColor={C.sidebar} activeColor={C.primary} topRight={<span style={mkBadge(C.primary)}>Administrateur</span>}>
-
-      {/* DASHBOARD */}
-      {page==="dashboard" && (
+    <Shell
+      user={user}
+      page={page}
+      setPage={setPage}
+      navItems={NAV}
+      onLogout={onLogout}
+      sidebarColor={C.sidebar}
+      activeColor={C.primary}
+      topRight={<span style={mkBadge(C.primary)}>Administrateur</span>}
+    >
+      {page === "dashboard" && (
         <>
           <h1 style={{ fontSize:22, fontWeight:800, marginBottom:4 }}>Bienvenue, {user.name}</h1>
-          <p style={{ color:C.sub, marginBottom:24 }}>Système d'identification biométrique · SegVision</p>
+          <p style={{ color:C.sub, marginBottom:24 }}>Administration des accès et du système biométrique SegVision.</p>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:24 }}>
             {[
-              {v:String(history.length), l:"Analyses"},
-              {v:String(database.length), l:"Personnes enrôlées"},
-              {v:"2", l:"Types biométriques"},
-              {v:"5+6", l:"Features optimisées"},
-            ].map(s=>(
-              <div key={s.l} style={base.card}>
-                <div style={{ width:36,height:3,background:C.primary,borderRadius:2,marginBottom:12 }}/>
-                <div style={{ fontSize:26,fontWeight:800,marginBottom:4 }}>{s.v}</div>
-                <div style={{ fontSize:13,color:C.sub }}>{s.l}</div>
+              { value:String(adminCount), label:"Administrateurs actifs" },
+              { value:String(clientCount), label:"Comptes utilisateurs" },
+              { value:String(database.length), label:"Personnes enrôlées" },
+              { value:String(history.length), label:"Opérations cette session" },
+            ].map(card => (
+              <div key={card.label} style={base.card}>
+                <div style={{ width:36, height:3, background:C.primary, borderRadius:2, marginBottom:12 }} />
+                <div style={{ fontSize:26, fontWeight:800, marginBottom:4 }}>{card.value}</div>
+                <div style={{ fontSize:13, color:C.sub }}>{card.label}</div>
               </div>
             ))}
           </div>
 
-          {/* Pipeline */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
             <div style={base.card}>
-              <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Pipeline biométrique rétine</div>
-              {["Segmentation vaisseaux (DoG multi-échelle)","Squelettisation Zhang-Suen (1px)","Extraction OvLen, TI, MedTor, D1, D2","Vecteur optimisé 5D enregistré"].map((s,i)=>(
-                <div key={i} style={{ display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}` }}>
-                  <div style={{ width:20,height:20,borderRadius:"50%",background:C.primaryLight,color:C.primary,fontWeight:800,fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>{i+1}</div>
-                  <div style={{ fontSize:13,color:C.text }}>{s}</div>
+              <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Administration des accès</div>
+              {["Valider les demandes administrateur","Suspendre ou réactiver un compte","Réinitialiser les mots de passe","Supprimer les accès obsolètes"].map((step,index) => (
+                <div key={step} style={{ display:"flex", gap:10, alignItems:"center", padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+                  <div style={{ width:20, height:20, borderRadius:"50%", background:C.primaryLight, color:C.primary, fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center" }}>{index + 1}</div>
+                  <div style={{ fontSize:13 }}>{step}</div>
                 </div>
               ))}
             </div>
             <div style={base.card}>
-              <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Pipeline biométrique empreinte</div>
-              {["Segmentation crêtes digitales","Détection minuties (bifurcations + terminaisons)","Calcul orientation et variation","Vecteur optimisé 6D enregistré"].map((s,i)=>(
-                <div key={i} style={{ display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}` }}>
-                  <div style={{ width:20,height:20,borderRadius:"50%",background:C.accentLight,color:C.accent,fontWeight:800,fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>{i+1}</div>
-                  <div style={{ fontSize:13,color:C.text }}>{s}</div>
+              <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Contrôle biométrique</div>
+              {["Enrôler une signature rétinienne","Comparer deux rétines","Authentifier contre la base","Supprimer une identité biométrique"].map((step,index) => (
+                <div key={step} style={{ display:"flex", gap:10, alignItems:"center", padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+                  <div style={{ width:20, height:20, borderRadius:"50%", background:C.accentLight, color:C.accent, fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center" }}>{index + 1}</div>
+                  <div style={{ fontSize:13 }}>{step}</div>
                 </div>
               ))}
             </div>
           </div>
 
           <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-            <button style={mkBtn("primary",C.primary)} onClick={()=>setPage("utilisateurs")}>{Ic.user}&nbsp;Créer un utilisateur</button>
-            <button style={mkBtn("soft",C.primary)} onClick={()=>setPage("analyse")}>{Ic.scan}&nbsp;Nouvelle analyse</button>
-            <button style={mkBtn("soft",C.success)} onClick={()=>setPage("biometrie")}>{Ic.db}&nbsp;Base biométrique</button>
-            <button style={mkBtn("soft",C.primary)} onClick={()=>setPage("biometrie")}>{Ic.search}&nbsp;Authentifier</button>
+            <button style={mkBtn("primary",C.primary)} onClick={() => setPage("admins")}>{Ic.shield}&nbsp;Gérer les administrateurs</button>
+            <button style={mkBtn("soft",C.primary)} onClick={() => setPage("utilisateurs")}>{Ic.user}&nbsp;Gérer les utilisateurs</button>
+            <button style={mkBtn("soft",C.accent)} onClick={() => setPage("comparaison")}>{Ic.search}&nbsp;Comparer deux rétines</button>
+            <button style={mkBtn("soft",C.success)} onClick={() => setPage("biometrie")}>{Ic.db}&nbsp;Base biométrique</button>
           </div>
         </>
       )}
 
-      {/* ANALYSE */}
-      {page==="analyse" && <UploadPanel onResult={onResult} accentColor={C.primary} showId={true} />}
-
-      {/* RÉSULTATS */}
-      {page==="resultats" && (
-        <ResultsPanel result={result} accentColor={C.primary}
-          onNew={()=>setPage("analyse")}
-          onEnroll={r=>{
-            // Pré-remplir l'enrôlement avec le résultat courant
-            setPage("biometrie");
-          }}
-          onAuth={()=>setPage("biometrie")}
+      {page === "admins" && (
+        <AccountManagementPanel
+          users={users}
+          currentUser={user}
+          onCreateUser={onCreateUser}
+          onUpdateUser={onUpdateUser}
+          onDeleteUser={onDeleteUser}
+          database={database}
+          setDatabase={setDatabase}
+          accentColor={C.primary}
+          initialTab="admins"
         />
       )}
 
-      {/* CRÉATION UTILISATEUR */}
-      {page==="utilisateurs" && (
-        <CreateUserPanel users={users} onCreateUser={onCreateUser} database={database} setDatabase={setDatabase} accentColor={C.primary} />
+      {page === "utilisateurs" && (
+        <AccountManagementPanel
+          users={users}
+          currentUser={user}
+          onCreateUser={onCreateUser}
+          onUpdateUser={onUpdateUser}
+          onDeleteUser={onDeleteUser}
+          database={database}
+          setDatabase={setDatabase}
+          accentColor={C.primary}
+          initialTab="clients"
+        />
       )}
 
-      {/* BASE BIOMÉTRIQUE */}
-      {page==="biometrie" && (
-        <BiometricDB database={database} setDatabase={setDatabase} accentColor={C.primary} />
+      {page === "analyse" && <UploadPanel onResult={onResult} accentColor={C.primary} showId={true} />}
+
+      {page === "resultats" && (
+        <ResultsPanel
+          result={result}
+          accentColor={C.primary}
+          onNew={() => setPage("analyse")}
+          onEnroll={() => setPage("biometrie")}
+          onAuth={() => setPage("biometrie")}
+        />
       )}
 
-      {/* HISTORIQUE */}
-      {page==="historique" && (
+      {page === "comparaison" && <RetinaComparisonPanel accentColor={C.primary} />}
+
+      {page === "biometrie" && <BiometricDB database={database} setDatabase={setDatabase} accentColor={C.primary} />}
+
+      {page === "historique" && (
         <>
-          <h2 style={{ fontSize:18,fontWeight:800,marginBottom:20 }}>Historique des opérations</h2>
-          {history.length===0
-            ? <div style={{ ...base.card, textAlign:"center", padding:"40px", color:C.muted }}>
-                <div style={{ fontSize:36, marginBottom:12 }}>📋</div>
-                <div>Aucune opération effectuée.</div>
-              </div>
-            : <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden" }}>
-                <table style={{ width:"100%",borderCollapse:"collapse" }}>
-                  <thead><tr><th style={base.th}>ID</th><th style={base.th}>Date</th><th style={base.th}>Utilisateur</th><th style={base.th}>Mode</th><th style={base.th}>Action</th><th style={base.th}>Résultat</th></tr></thead>
-                  <tbody>{history.map((r,i)=>(
-                    <tr key={r.id} style={{ background:i%2===0?C.surface:C.bg }}>
-                      <td style={base.td}><code style={{ fontSize:12,color:C.primary }}>{r.id}</code></td>
-                      <td style={{ ...base.td,fontSize:12 }}>{r.date}</td>
-                      <td style={base.td}>{r.Utilisateur}</td>
-                      <td style={base.td}>{r.mode}</td>
-                      <td style={base.td}>{r.action}</td>
-                      <td style={base.td}><span style={mkChip(C.success)}>{r.result}</span></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-          }
+          <h2 style={{ fontSize:18, fontWeight:800, marginBottom:20 }}>Historique des opérations</h2>
+          {history.length === 0 ? (
+            <div style={{ ...base.card, textAlign:"center", padding:"40px", color:C.muted }}>
+              <div style={{ fontSize:36, marginBottom:12 }}>📋</div>
+              <div>Aucune opération effectuée pendant cette session.</div>
+            </div>
+          ) : (
+            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr><th style={base.th}>ID</th><th style={base.th}>Date</th><th style={base.th}>Utilisateur</th><th style={base.th}>Mode</th><th style={base.th}>Action</th><th style={base.th}>Résultat</th></tr></thead>
+                <tbody>{history.map((row,index) => (
+                  <tr key={row.id} style={{ background:index % 2 === 0 ? C.surface : C.bg }}>
+                    <td style={base.td}><code style={{ fontSize:12, color:C.primary }}>{row.id}</code></td>
+                    <td style={{ ...base.td, fontSize:12 }}>{row.date}</td>
+                    <td style={base.td}>{row.Utilisateur}</td>
+                    <td style={base.td}>{row.mode}</td>
+                    <td style={base.td}>{row.action}</td>
+                    <td style={base.td}><span style={mkChip(C.success)}>{row.result}</span></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
-      {/* SÉCURITÉ */}
-      {page==="securite" && (
+      {page === "securite" && (
         <>
-          <h2 style={{ fontSize:18,fontWeight:800,marginBottom:4 }}>Sécurité & Conformité</h2>
-          <p style={{ color:C.sub,fontSize:13,marginBottom:20 }}>Architecture du système biométrique.</p>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
+          <h2 style={{ fontSize:18, fontWeight:800, marginBottom:4 }}>Sécurité & conformité</h2>
+          <p style={{ color:C.sub, fontSize:13, marginBottom:20 }}>État des contrôles du prototype.</p>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
             {[
-              {icon:"🗑️",t:"Pas de stockage d'image",d:"Seuls les vecteurs optimisés sont conservés. L'image est détruite après traitement."},
-              {icon:"📐",t:"Squelettisation Zhang-Suen",d:"Les vaisseaux sont réduits à 1px d'épaisseur pour une mesure précise de OvLen, TI, MedTor."},
-              {icon:"⚡",t:"Features optimisées",d:"Rétine : OvLen, TI, MedTor, D1, D2 · Empreinte : minuties, orientation, variation."},
-              {icon:"🔐",t:"Distance euclidienne normalisée",d:"Seuil rétine : 0.05 · Seuil empreinte : 0.05 · Mode double = les deux doivent correspondre."},
-              {icon:"🏥",t:"Validation RPPS",d:"Comptes Administrateur vérifiés via RPPS et Ordre des Administrateurs."},
-              {icon:"📋",t:"Audit trail",d:"Chaque analyse, enrôlement et authentification est tracé avec timestamp."},
-            ].map(item=>(
-              <div key={item.t} style={{ ...base.card,display:"flex",gap:14 }}>
+              { icon:"🗑️", title:"Pas de stockage d'image", description:"Les images ne sont pas placées dans la base. Seules les signatures numériques sont conservées." },
+              { icon:"👥", title:"Gestion des comptes", description:"Validation, suspension, réactivation, réinitialisation et suppression des accès." },
+              { icon:"👁️", title:"Comparaison rétinienne", description:"Comparaison multi-critères avec égalité exacte pour la même image et tolérance contrôlée entre acquisitions proches." },
+              { icon:"🫆", title:"Double authentification biométrique", description:"En mode renforcé, la rétine et l'empreinte doivent toutes les deux correspondre." },
+              { icon:"💾", title:"Persistance locale", description:"Comptes et signatures restent dans le navigateur après rechargement du site." },
+              { icon:"📋", title:"Journal de session", description:"Les analyses effectuées pendant la session sont listées dans l'historique." },
+            ].map(item => (
+              <div key={item.title} style={{ ...base.card, display:"flex", gap:14 }}>
                 <div style={{ fontSize:26 }}>{item.icon}</div>
-                <div><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6 }}><div style={{ fontWeight:700,fontSize:14 }}>{item.t}</div><span style={mkChip(C.success)}>Actif</span></div><div style={{ color:C.sub,fontSize:13 }}>{item.d}</div></div>
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:6 }}>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{item.title}</div>
+                    <span style={mkChip(C.success)}>Actif</span>
+                  </div>
+                  <div style={{ color:C.sub, fontSize:13 }}>{item.description}</div>
+                </div>
               </div>
             ))}
           </div>
@@ -2884,11 +3379,79 @@ function UtilisateurApp({ user, onLogout }) {
 // ROOT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [user,  setUser]  = useState(null);
-  const [users, setUsers] = useState({ ...INITIAL_USERS });
-  const register = (u) => setUsers(prev=>({...prev,[u.username]:u}));
+  const [user, setUser] = useState(null);
+  const [users, setUsers] = useState(() => {
+    try {
+      const saved = localStorage.getItem("segvision_users");
+      return saved ? JSON.parse(saved) : { ...INITIAL_USERS };
+    } catch (error) {
+      return { ...INITIAL_USERS };
+    }
+  });
 
-  if (!user) return <LoginPage onLogin={setUser} users={users} onRegister={register} />;
-  if (user.role==="Administrateur") return <AdministrateurApp user={user} users={users} onCreateUser={register} onLogout={()=>setUser(null)} />;
-  return <UtilisateurApp user={user} onLogout={()=>setUser(null)} />;
+  useEffect(() => {
+    try {
+      localStorage.setItem("segvision_users", JSON.stringify(users));
+    } catch (error) {
+      console.error("Impossible d'enregistrer les comptes", error);
+    }
+  }, [users]);
+
+  const register = account => {
+    const normalized = {
+      disabled:false,
+      pendingValidation:false,
+      validated:true,
+      ...account,
+      username:account.username,
+    };
+    setUsers(previous => ({ ...previous, [normalized.username]:normalized }));
+  };
+
+  const updateUser = (username, changes, nextUsername=username) => {
+    setUsers(previous => {
+      if (!previous[username]) return previous;
+      const updated = {
+        ...previous[username],
+        ...changes,
+        username:nextUsername,
+      };
+      const next = { ...previous };
+      delete next[username];
+      next[nextUsername] = updated;
+      return next;
+    });
+
+    setUser(current => current?.username === username
+      ? { ...current, ...changes, username:nextUsername }
+      : current
+    );
+  };
+
+  const deleteUser = username => {
+    setUsers(previous => {
+      const next = { ...previous };
+      delete next[username];
+      return next;
+    });
+  };
+
+  if (!user) {
+    return <LoginPage onLogin={setUser} users={users} onRegister={register} />;
+  }
+
+  if (user.role === "Administrateur") {
+    return (
+      <AdministrateurApp
+        user={user}
+        users={users}
+        onCreateUser={register}
+        onUpdateUser={updateUser}
+        onDeleteUser={deleteUser}
+        onLogout={() => setUser(null)}
+      />
+    );
+  }
+
+  return <UtilisateurApp user={user} onLogout={() => setUser(null)} />;
 }
