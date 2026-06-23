@@ -3266,7 +3266,7 @@ return (
 <div
 style={{
 minHeight: "100vh",
-background: `linear-gradient(135deg, ${C.clientSidebar} 0%, #3B0D8C 100%)`,
+background: linear-gradient(135deg, ${C.clientSidebar} 0%, #3B0D8C 100%),
 display: "flex",
 flexDirection: "column",
 ...F,
@@ -3282,7 +3282,9 @@ justifyContent: "space-between",
 borderBottom: "1px solid rgba(255,255,255,0.12)",
 background: "rgba(0,0,0,0.12)",
 }}
-> <Logo size={38} />
+>
+
+
 
     <button
       onClick={onLogout}
@@ -3303,7 +3305,10 @@ background: "rgba(0,0,0,0.12)",
       flex: 1,
 
 }
-Déconnexion </button> </header>
+Déconnexion
+
+
+
 
   <main
     style={{
