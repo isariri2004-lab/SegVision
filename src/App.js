@@ -2461,42 +2461,6 @@ padding: 48,
   ) : ( 
     "Se connecter"
   )} 
-    </button>
-      
-    <button
-        type="button"
-        style={{
-          ...mkBtn(
-            "primary",
-            IsAdmin
-              ? C.primary
-              : C.accent
-          ),
-          width: "100%",
-          padding: 13,
-          fontSize: 15,
-          marginBottom: 12,
-          opacity: loading ? 0.6 : 1,
-        }}
-        onClick={login}
-        disabled={loading}
-      >
-        {loading ? (
-          <>
-            <span
-              style={{
-                animation:
-                  "spin 1s linear infinite",
-                display: "inline-block",
-              }}
-            >
-              ⟳
-            </span>
-            &nbsp;{loadingMessage}
-          </>
-        ) : ( 
-    "Se connecter"
-  )}  
         }
       </button>
 
