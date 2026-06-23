@@ -2494,9 +2494,8 @@ padding: 48,
             </span>
             &nbsp;{loadingMessage}
           </>
-        ) : (
-          "Se connecter"
-        )}
+        ) : 
+        }
       </button>
 
       <style>
