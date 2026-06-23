@@ -2464,6 +2464,479 @@ Mode d'authentification </div>
 
 );
 }
+function ResultsPanel({
+result,
+accentColor = C.primary,
+onNew,
+onEnroll,
+onAuth,
+}) {
+const [fingerView, setFingerView] = useState("overlay");
+const [retinaView, setRetinaView] = useState("overlay");
+
+if (!result) {
+return (
+<div
+style={{
+...base.card,
+textAlign: "center",
+padding: "70px 20px",
+}}
+>
+<div style={{ fontSize: 48, marginBottom: 14 }}>
+🧬 </div>
+
+```
+    <h2
+      style={{
+        margin: "0 0 8px",
+        fontSize: 19,
+        color: C.text,
+      }}
+    >
+      Aucune analyse effectuée
+    </h2>
+
+    <p
+      style={{
+        color: C.sub,
+        marginBottom: 22,
+      }}
+    >
+      Lancez une analyse pour afficher les résultats
+      biométriques.
+    </p>
+
+    {onNew && (
+      <button
+        type="button"
+        style={mkBtn("primary", accentColor)}
+        onClick={onNew}
+      >
+        {Ic.scan}&nbsp;Nouvelle analyse
+      </button>
+    )}
+  </div>
+);
+```
+
+}
+
+const empreinte = result.empreinte || null;
+const retine = result.retine || null;
+const premium =
+result.securityMode === "double" && Boolean(retine);
+
+const getImage = (data, view) => {
+if (!data) return "";
+
+```
+if (view === "original") return data.originalUrl;
+if (view === "mask") return data.maskUrl;
+if (view === "skel") return data.skelUrl;
+
+return data.overlayUrl;
+```
+
+};
+
+const formatValue = value => {
+const number = Number(value);
+
+```
+return Number.isFinite(number)
+  ? number.toFixed(4)
+  : "-";
+```
+
+};
+
+const Viewer = ({
+title,
+data,
+view,
+setView,
+color,
+legend,
+}) => {
+if (!data) return null;
+
+```
+return (
+  <div style={base.card}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        flexWrap: "wrap",
+        marginBottom: 12,
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 800,
+          fontSize: 14,
+        }}
+      >
+        {title}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 6,
+          flexWrap: "wrap",
+        }}
+      >
+        {[
+          ["original", "Original"],
+          ["overlay", "Superposition"],
+          ["mask", "Masque"],
+          ["skel", "Squelette"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setView(value)}
+            style={{
+              ...mkBtn(
+                view === value
+                  ? "primary"
+                  : "ghost",
+                color
+              ),
+              padding: "5px 10px",
+              fontSize: 11,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div
+      style={{
+        height: 320,
+        background: "#080F1E",
+        borderRadius: 10,
+        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <img
+        src={getImage(data, view)}
+        alt={title}
+        style={{
+          maxWidth: "100%",
+          maxHeight: "100%",
+          objectFit: "contain",
+          display: "block",
+        }}
+      />
+    </div>
+
+    <div
+      style={{
+        marginTop: 8,
+        color: C.muted,
+        fontSize: 11,
+        textAlign: "center",
+      }}
+    >
+      {legend}
+    </div>
+  </div>
+);
+```
+
+};
+
+const VectorBlock = ({
+title,
+vector,
+labels,
+color,
+}) => {
+if (!vector) return null;
+
+```
+return (
+  <div>
+    <h3
+      style={{
+        margin: "0 0 6px",
+        fontSize: 16,
+        color: C.text,
+      }}
+    >
+      {title}
+    </h3>
+
+    <p
+      style={{
+        margin: "0 0 14px",
+        color: C.sub,
+        fontSize: 12,
+      }}
+    >
+      Signature utilisée pour l’authentification
+    </p>
+
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns:
+          "repeat(2, minmax(0, 1fr))",
+        gap: 10,
+        marginBottom: 14,
+      }}
+    >
+      {labels.map((label, index) => (
+        <div
+          key={label}
+          style={{
+            background: C.bg,
+            border: `1px solid ${C.border}`,
+            borderRadius: 10,
+            padding: 12,
+          }}
+        >
+          <div
+            style={{
+              color: C.muted,
+              fontSize: 10,
+              fontWeight: 700,
+              marginBottom: 5,
+              wordBreak: "break-word",
+            }}
+          >
+            {label}
+          </div>
+
+          <div
+            style={{
+              color,
+              fontFamily: "monospace",
+              fontSize: 16,
+              fontWeight: 800,
+              wordBreak: "break-all",
+            }}
+          >
+            {formatValue(vector[index])}
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <div
+      style={{
+        background: "#080F1E",
+        borderRadius: 10,
+        padding: 14,
+        color: "#4ADE80",
+        fontFamily: "monospace",
+        fontSize: 11,
+        lineHeight: 1.7,
+        wordBreak: "break-word",
+      }}
+    >
+      [
+      {vector
+        .map(value => formatValue(value))
+        .join(", ")}
+      ]
+    </div>
+  </div>
+);
+```
+
+};
+
+return (
+<>
+<div
+style={{
+display: "flex",
+justifyContent: "space-between",
+alignItems: "flex-start",
+gap: 12,
+flexWrap: "wrap",
+marginBottom: 20,
+}}
+> <div>
+<div
+style={{
+display: "flex",
+gap: 8,
+flexWrap: "wrap",
+marginBottom: 7,
+}}
+> <span style={mkChip(C.success)}>
+✓ Analyse terminée </span>
+
+        <span style={mkBadge(C.accent)}>
+          🫆 Empreinte
+        </span>
+
+        {premium && (
+          <span style={mkBadge(C.primary)}>
+            👁️ Rétine Premium
+          </span>
+        )}
+      </div>
+
+      <h2
+        style={{
+          margin: 0,
+          fontSize: 20,
+          fontWeight: 800,
+        }}
+      >
+        Résultats biométriques
+      </h2>
+
+      <div
+        style={{
+          color: C.muted,
+          fontSize: 12,
+          marginTop: 5,
+        }}
+      >
+        Identifiant : {result.UtilisateurId || "Anonyme"}
+      </div>
+    </div>
+
+    <div
+      style={{
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+      }}
+    >
+      {onNew && (
+        <button
+          type="button"
+          style={mkBtn("ghost")}
+          onClick={onNew}
+        >
+          {Ic.scan}&nbsp;Nouvelle analyse
+        </button>
+      )}
+
+      {onEnroll && (
+        <button
+          type="button"
+          style={mkBtn("soft", C.success)}
+          onClick={() => onEnroll(result)}
+        >
+          {Ic.plus}&nbsp;Enrôler
+        </button>
+      )}
+
+      {onAuth && (
+        <button
+          type="button"
+          style={mkBtn("primary", accentColor)}
+          onClick={() => onAuth(result)}
+        >
+          {Ic.search}&nbsp;Authentifier
+        </button>
+      )}
+    </div>
+  </div>
+
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns:
+        "minmax(0, 1fr) minmax(380px, 1fr)",
+      gap: 20,
+      alignItems: "start",
+    }}
+  >
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+      }}
+    >
+      <Viewer
+        title="🫆 Visualisation de l’empreinte"
+        data={empreinte}
+        view={fingerView}
+        setView={setFingerView}
+        color={C.accent}
+        legend="Bleu : crêtes digitales détectées"
+      />
+
+      {premium && (
+        <Viewer
+          title="👁️ Visualisation de la rétine"
+          data={retine}
+          view={retinaView}
+          setView={setRetinaView}
+          color={C.primary}
+          legend="Rouge : vaisseaux rétiniens détectés"
+        />
+      )}
+    </div>
+
+    <div
+      style={{
+        ...base.card,
+        display: "flex",
+        flexDirection: "column",
+        gap: 28,
+      }}
+    >
+      <VectorBlock
+        title="🫆 Vecteur optimisé empreinte"
+        vector={empreinte?.optimizedArray}
+        color={C.accent}
+        labels={[
+          "nbMinutiae",
+          "nbBifurcations",
+          "nbTerminations",
+          "minutiaeDensity",
+          "meanOrientation",
+          "orientationVariation",
+        ]}
+      />
+
+      {premium && (
+        <div
+          style={{
+            borderTop: `1px solid ${C.border}`,
+            paddingTop: 26,
+          }}
+        >
+          <VectorBlock
+            title="👁️ Vecteur optimisé rétine"
+            vector={retine?.optimizedArray}
+            color={C.primary}
+            labels={[
+              "OvLen",
+              "TI",
+              "MedTor",
+              "D1",
+              "D2",
+            ]}
+          />
+        </div>
+      )}
+    </div>
+  </div>
+</>
+
+
+);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BASE DE DONNÉES BIOMÉTRIQUE — Enrôlement + Authentification
