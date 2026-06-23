@@ -2454,8 +2454,16 @@ padding: 48,
                 display: "inline-block",
               }}
             >
-           ⟳ </span> &nbsp;{loadingMessage} </> ) : ( "Se connecter" )} </button>
-      <button
+           ⟳ 
+             </span>
+             &nbsp;{loadingMessage} 
+</>
+  ) : ( 
+    "Se connecter"
+  )} 
+    </button>
+      
+    <button
         type="button"
         style={{
           ...mkBtn(
@@ -2486,7 +2494,9 @@ padding: 48,
             </span>
             &nbsp;{loadingMessage}
           </>
-        ) : 
+        ) : ( 
+    "Se connecter"
+  )}  
         }
       </button>
 
