@@ -3310,166 +3310,855 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // CRÉATION DE COMPTE UTILISATEUR (par l'administrateur)
 // ═══════════════════════════════════════════════════════════════════════════════
-function CreateUserPanel({ users, onCreateUser, database, setDatabase, accentColor=C.primary }) {
-  const [form, setForm]       = useState({ prenom:"", nom:"", username:"", password:"", email:"" });
-  const [bio, setBio]         = useState(null);   // { retine, empreinte }
-  const [busy, setBusy]       = useState("");      // message de traitement en cours
-  const [err, setErr]         = useState("");
-  const [created, setCreated] = useState(null);    // récap du compte créé
-  const refRetine = useRef(); const refEmpreinte = useRef();
-  const set = (k,v) => setForm(p=>({...p,[k]:v}));
+function CreateUserPanel({
+users,
+onCreateUser,
+database,
+setDatabase,
+accentColor = C.primary,
+}) {
+const [form, setForm] = useState({
+prenom: "",
+nom: "",
+username: "",
+password: "",
+email: "",
+});
 
-  const handleFile = async (file, mode) => {
-    if (!file) return;
-    setErr(""); setBusy(mode==="retine" ? "Analyse rétinienne en cours..." : "Analyse empreinte en cours...");
-    try {
-      const result = await processBiometric(file, mode);
-      setBio(prev => ({ ...(prev||{}), [mode]: result }));
-    } catch(e) { setErr(`Erreur lors de l'analyse ${mode} : ${e.message}`); }
-    finally { setBusy(""); }
-  };
+const [securityMode, setSecurityMode] =
+useState("empreinte");
 
-  const validate = () => {
-    if (!form.prenom.trim()) return "Le prénom est requis.";
-    if (!form.nom.trim()) return "Le nom est requis.";
-    if (form.username.trim().length < 4) return "Identifiant trop court (min. 4 caractères).";
-    if (users[form.username.trim()]) return "Cet identifiant existe déjà.";
-    if (form.password.length < 6) return "Mot de passe trop court (min. 6 caractères).";
-    if (form.email && !form.email.includes("@")) return "Email invalide.";
-    if (!bio?.retine) return "Une analyse rétinienne est obligatoire (importez l'image de rétine).";
-    return null;
-  };
+const [bio, setBio] = useState(null);
+const [busy, setBusy] = useState("");
+const [err, setErr] = useState("");
+const [created, setCreated] = useState(null);
 
-  const submit = () => {
-    const e = validate();
-    if (e) { setErr(e); return; }
-    setErr("");
-    const fullName = `${form.prenom.trim()} ${form.nom.trim()}`;
-    const username = form.username.trim();
+const refRetine = useRef();
+const refEmpreinte = useRef();
 
-    // 1. Compte de connexion (avec vecteurs biométriques attachés pour l'auth au login)
-    onCreateUser({
-      username,
-      password: form.password,
-      role: "client",
-      name: fullName,
-      email: form.email.trim(),
-      validated: true,
-      retineVector: bio.retine.optimizedArray,
-      empreinteVector: bio.empreinte?.optimizedArray || null,
-      hasEmpreinte: !!bio.empreinte,
-    });
+const set = (key, value) =>
+setForm(previous => ({
+...previous,
+[key]: value,
+}));
 
-    // 2. Enrôlement biométrique (rétine obligatoire + empreinte optionnelle)
-    setDatabase(prev => [...prev, {
-      id: Date.now().toString(),
-      username,
-      name: fullName,
-      date: new Date().toLocaleString("fr-FR").slice(0,16),
-      retineVector: bio.retine.optimizedArray,
-      empreinteVector: bio.empreinte?.optimizedArray || null,
-      hasEmpreinte: !!bio.empreinte,
-    }]);
+const changeMode = mode => {
+setSecurityMode(mode);
+setErr("");
 
-    setCreated({ username, fullName, hasEmpreinte: !!bio.empreinte });
-    setForm({ prenom:"", nom:"", username:"", password:"", email:"" });
-    setBio(null);
-  };
 
-  // ── Écran de confirmation ───────────────────────────────────────────────────
-  if (created) return (
-    <div style={{ ...base.card, maxWidth:560, margin:"0 auto", textAlign:"center", padding:"40px 36px" }}>
-      <div style={{ width:64, height:64, background:C.successBg, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", fontSize:32 }}>✅</div>
-      <h2 style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Compte utilisateur créé</h2>
-      <p style={{ color:C.sub, fontSize:14, marginBottom:20, lineHeight:1.6 }}>
-        <strong>{created.fullName}</strong> peut désormais se connecter avec l'identifiant <code style={{ color:accentColor }}>{created.username}</code>.
-      </p>
-      <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", fontSize:13, color:C.sub, marginBottom:24, textAlign:"left" }}>
-        👁️ Rétine enrôlée dans la base biométrique{created.hasEmpreinte ? " · 🫆 Empreinte enrôlée" : ""}.
-      </div>
-      <button style={{ ...mkBtn("primary",accentColor), padding:"12px 22px" }} onClick={()=>setCreated(null)}>{Ic.plus}&nbsp;Créer un autre compte</button>
-    </div>
-  );
-
-  const DropZone = ({ done, label, icon, inputRef, mode, optional }) => (
-    <>
-      <input ref={inputRef} type="file" accept=".png,.jpg,.jpeg,.bmp" style={{ display:"none" }}
-        onChange={e=>handleFile(e.target.files[0], mode)} />
-      <div onClick={()=>inputRef.current.click()}
-        style={{ border:`2px dashed ${done?C.success:C.border}`, borderRadius:10, padding:"20px", textAlign:"center", cursor:"pointer", background:done?C.successBg:C.bg, marginBottom:14, transition:"all 0.15s" }}>
-        {done
-          ? <><div style={{ fontSize:22 }}>✅</div><div style={{ color:C.success, fontSize:13, fontWeight:700 }}>{mode==="retine"?"Rétine analysée":"Empreinte analysée"}</div></>
-          : <><div style={{ fontSize:26 }}>{icon}</div><div style={{ color:optional?C.muted:accentColor, fontSize:13 }}>{label}</div><div style={{ color:C.muted, fontSize:11 }}>PNG, JPG, BMP</div></>
+if (mode === "empreinte") {
+  setBio(previous =>
+    previous
+      ? {
+          ...previous,
+          retine: null,
         }
-      </div>
-    </>
+      : previous
+  );
+}
+
+
+};
+
+const handleFile = async (file, mode) => {
+if (!file) return;
+
+
+setErr("");
+
+setBusy(
+  mode === "retine"
+    ? "Analyse rétinienne Premium en cours..."
+    : "Analyse de l'empreinte en cours..."
+);
+
+try {
+  const result = await processBiometric(
+    file,
+    mode
   );
 
-  return (
-    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:24 }}>
-      {/* Infos utilisateur */}
-      <div style={base.card}>
-        <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Informations de l'utilisateur</div>
-        <div style={{ color:C.sub, fontSize:13, marginBottom:16 }}>Le compte est créé par l'administrateur.</div>
+  setBio(previous => ({
+    ...(previous || {}),
+    [mode]: result,
+  }));
+} catch (error) {
+  setErr(
+    `Erreur lors de l'analyse ${mode} : ${error.message}`
+  );
+} finally {
+  setBusy("");
+}
 
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-          <div>
-            <label style={base.label}>Prénom *</label>
-            <input style={base.input} type="text" placeholder="Ex : Jean" value={form.prenom} onChange={e=>set("prenom",e.target.value)} />
-          </div>
-          <div>
-            <label style={base.label}>Nom *</label>
-            <input style={base.input} type="text" placeholder="Ex : Martin" value={form.nom} onChange={e=>set("nom",e.target.value)} />
-          </div>
+
+};
+
+const validate = () => {
+if (!form.prenom.trim()) {
+return "Le prénom est requis.";
+}
+
+
+if (!form.nom.trim()) {
+  return "Le nom est requis.";
+}
+
+if (form.username.trim().length < 4) {
+  return "Identifiant trop court (min. 4 caractères).";
+}
+
+if (users[form.username.trim()]) {
+  return "Cet identifiant existe déjà.";
+}
+
+if (form.password.length < 6) {
+  return "Mot de passe trop court (min. 6 caractères).";
+}
+
+if (
+  form.email &&
+  !form.email.includes("@")
+) {
+  return "Email invalide.";
+}
+
+if (!bio?.empreinte) {
+  return "Une empreinte est obligatoire pour créer le compte.";
+}
+
+if (
+  securityMode === "double" &&
+  !bio?.retine
+) {
+  return "Le mode Premium nécessite également une rétine.";
+}
+
+return null;
+
+
+};
+
+const submit = () => {
+const validationError = validate();
+
+
+if (validationError) {
+  setErr(validationError);
+  return;
+}
+
+setErr("");
+
+const fullName =
+  `${form.prenom.trim()} ${form.nom.trim()}`;
+
+const username = form.username.trim();
+const premium =
+  securityMode === "double";
+
+const account = {
+  username,
+  password: form.password,
+  role: "client",
+  name: fullName,
+  email: form.email.trim(),
+  validated: true,
+
+  authMode: securityMode,
+
+  empreinteVector:
+    bio.empreinte.optimizedArray,
+
+  retineVector: premium
+    ? bio.retine.optimizedArray
+    : null,
+
+  hasEmpreinte: true,
+  hasRetine: premium,
+};
+
+onCreateUser(account);
+
+setDatabase(previous => [
+  ...previous,
+  {
+    id: Date.now().toString(),
+    username,
+    name: fullName,
+
+    date: new Date()
+      .toLocaleString("fr-FR")
+      .slice(0, 16),
+
+    authMode: securityMode,
+
+    empreinteVector:
+      bio.empreinte.optimizedArray,
+
+    retineVector: premium
+      ? bio.retine.optimizedArray
+      : null,
+
+    hasEmpreinte: true,
+    hasRetine: premium,
+  },
+]);
+
+setCreated({
+  username,
+  fullName,
+  authMode: securityMode,
+});
+
+setForm({
+  prenom: "",
+  nom: "",
+  username: "",
+  password: "",
+  email: "",
+});
+
+setSecurityMode("empreinte");
+setBio(null);
+
+
+};
+
+if (created) {
+const premium =
+created.authMode === "double";
+
+
+return (
+  <div
+    style={{
+      ...base.card,
+      maxWidth: 560,
+      margin: "0 auto",
+      textAlign: "center",
+      padding: "40px 36px",
+    }}
+  >
+    <div
+      style={{
+        width: 64,
+        height: 64,
+        background: C.successBg,
+        borderRadius: "50%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        margin: "0 auto 16px",
+        fontSize: 32,
+      }}
+    >
+      ✅
+    </div>
+
+    <h2
+      style={{
+        fontSize: 20,
+        fontWeight: 800,
+        marginBottom: 8,
+      }}
+    >
+      Compte utilisateur créé
+    </h2>
+
+    <p
+      style={{
+        color: C.sub,
+        fontSize: 14,
+        marginBottom: 20,
+        lineHeight: 1.6,
+      }}
+    >
+      <strong>
+        {created.fullName}
+      </strong>{" "}
+      peut désormais se connecter avec
+      l'identifiant{" "}
+      <code style={{ color: accentColor }}>
+        {created.username}
+      </code>
+      .
+    </p>
+
+    <div
+      style={{
+        background: C.bg,
+        border: `1px solid ${C.border}`,
+        borderRadius: 10,
+        padding: "14px 16px",
+        fontSize: 13,
+        color: C.sub,
+        marginBottom: 24,
+        textAlign: "left",
+      }}
+    >
+      {premium
+        ? "⭐ Compte Premium : empreinte et rétine enrôlées."
+        : "🫆 Compte Standard : empreinte enrôlée."}
+    </div>
+
+    <button
+      type="button"
+      style={{
+        ...mkBtn(
+          "primary",
+          accentColor
+        ),
+        padding: "12px 22px",
+      }}
+      onClick={() =>
+        setCreated(null)
+      }
+    >
+      {Ic.plus}&nbsp;Créer un autre compte
+    </button>
+  </div>
+);
+
+
+}
+
+const DropZone = ({
+done,
+label,
+icon,
+inputRef,
+mode,
+color,
+}) => (
+<>
+<input
+ref={inputRef}
+type="file"
+accept=".png,.jpg,.jpeg,.bmp"
+style={{ display: "none" }}
+onChange={event =>
+handleFile(
+event.target.files?.[0],
+mode
+)
+}
+/>
+
+
+  <div
+    onClick={() =>
+      inputRef.current?.click()
+    }
+    style={{
+      border: `2px dashed ${
+        done
+          ? C.success
+          : C.border
+      }`,
+      borderRadius: 10,
+      padding: 20,
+      textAlign: "center",
+      cursor: "pointer",
+      background: done
+        ? C.successBg
+        : C.bg,
+      marginBottom: 14,
+      transition: "all 0.15s",
+    }}
+  >
+    {done ? (
+      <>
+        <div style={{ fontSize: 22 }}>
+          ✅
         </div>
-        <label style={base.label}>Identifiant *</label>
-        <input style={base.input} type="text" placeholder="Min. 4 caractères" value={form.username} onChange={e=>set("username",e.target.value)} />
-        <label style={base.label}>Mot de passe *</label>
-        <input style={base.input} type="text" placeholder="Min. 6 caractères" value={form.password} onChange={e=>set("password",e.target.value)} />
-        <label style={base.label}>Email (optionnel)</label>
-        <input style={base.input} type="email" placeholder="email@exemple.fr" value={form.email} onChange={e=>set("email",e.target.value)} />
 
-        {err && <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}30`, borderRadius:8, padding:"10px 14px", marginBottom:14, fontSize:13 }}>⚠ {err}</div>}
+        <div
+          style={{
+            color: C.success,
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          {mode === "retine"
+            ? "Rétine analysée"
+            : "Empreinte analysée"}
+        </div>
+      </>
+    ) : (
+      <>
+        <div style={{ fontSize: 26 }}>
+          {icon}
+        </div>
 
-        <button style={{ ...mkBtn("primary",accentColor), width:"100%", padding:"13px", fontSize:15, opacity:busy?0.6:1 }}
-          onClick={submit} disabled={!!busy}>
-          {Ic.plus}&nbsp;Créer le compte utilisateur
-        </button>
+        <div
+          style={{
+            color,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          {label}
+        </div>
+
+        <div
+          style={{
+            color: C.muted,
+            fontSize: 11,
+          }}
+        >
+          PNG, JPG, BMP
+        </div>
+      </>
+    )}
+  </div>
+</>
+
+
+);
+
+return (
+<div
+style={{
+display: "grid",
+gridTemplateColumns:
+"1fr 1fr",
+gap: 24,
+}}
+> <div style={base.card}>
+<div
+style={{
+fontWeight: 700,
+fontSize: 15,
+marginBottom: 4,
+}}
+>
+Informations de l'utilisateur </div>
+
+
+    <div
+      style={{
+        color: C.sub,
+        fontSize: 13,
+        marginBottom: 16,
+      }}
+    >
+      Le compte est créé par
+      l'administrateur.
+    </div>
+
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns:
+          "1fr 1fr",
+        gap: 12,
+      }}
+    >
+      <div>
+        <label style={base.label}>
+          Prénom *
+        </label>
+
+        <input
+          style={base.input}
+          type="text"
+          placeholder="Ex : Jean"
+          value={form.prenom}
+          onChange={event =>
+            set(
+              "prenom",
+              event.target.value
+            )
+          }
+        />
       </div>
 
-      {/* Analyse rétinienne */}
-      <div style={base.card}>
-        <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Analyse rétinienne *</div>
-        <div style={{ color:C.sub, fontSize:13, marginBottom:16 }}>Importez l'image de rétine de l'utilisateur — l'analyse se lance automatiquement.</div>
+      <div>
+        <label style={base.label}>
+          Nom *
+        </label>
 
-        <label style={base.label}>Image rétinienne *</label>
-        <DropZone done={!!bio?.retine} label="Importer l'image de rétine" icon="👁️" inputRef={refRetine} mode="retine" />
-
-        <label style={base.label}>Image empreinte (optionnel)</label>
-        <DropZone done={!!bio?.empreinte} label="Importer l'empreinte (optionnel)" icon="🫆" inputRef={refEmpreinte} mode="empreinte" optional />
-
-        {busy && (
-          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 12px", background:accentColor+"0E", borderRadius:8, fontSize:13, color:accentColor, marginBottom:12 }}>
-            <span style={{ animation:"spin 1s linear infinite", display:"inline-block" }}>⟳</span> {busy}
-          </div>
-        )}
-
-        {bio?.retine && (
-          <div style={{ marginBottom:12 }}>
-            <div style={{ fontWeight:600, fontSize:13, color:accentColor, marginBottom:6 }}>👁️ Vecteur optimisé rétine [5D]</div>
-            <div style={{ background:"#080F1E", borderRadius:8, padding:"12px", fontFamily:"monospace", fontSize:11, color:"#4ADE80" }}>
-              [{bio.retine.optimizedArray.map(v=>v.toFixed(4)).join(", ")}]
-            </div>
-          </div>
-        )}
-
-        <div style={{ padding:"10px 12px", background:C.bg, borderRadius:8, border:`1px solid ${C.border}`, fontSize:12, color:C.muted }}>
-          🔒 Images non stockées — seuls les vecteurs optimisés sont conservés.
-        </div>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <input
+          style={base.input}
+          type="text"
+          placeholder="Ex : Martin"
+          value={form.nom}
+          onChange={event =>
+            set(
+              "nom",
+              event.target.value
+            )
+          }
+        />
       </div>
     </div>
-  );
+
+    <label style={base.label}>
+      Identifiant *
+    </label>
+
+    <input
+      style={base.input}
+      type="text"
+      placeholder="Min. 4 caractères"
+      value={form.username}
+      onChange={event =>
+        set(
+          "username",
+          event.target.value
+        )
+      }
+    />
+
+    <label style={base.label}>
+      Mot de passe *
+    </label>
+
+    <input
+      style={base.input}
+      type="text"
+      placeholder="Min. 6 caractères"
+      value={form.password}
+      onChange={event =>
+        set(
+          "password",
+          event.target.value
+        )
+      }
+    />
+
+    <label style={base.label}>
+      Email (optionnel)
+    </label>
+
+    <input
+      style={base.input}
+      type="email"
+      placeholder="email@exemple.fr"
+      value={form.email}
+      onChange={event =>
+        set(
+          "email",
+          event.target.value
+        )
+      }
+    />
+
+    {err && (
+      <div
+        style={{
+          background: C.redBg,
+          color: C.red,
+          border:
+            `1px solid ${C.red}30`,
+          borderRadius: 8,
+          padding: "10px 14px",
+          marginBottom: 14,
+          fontSize: 13,
+        }}
+      >
+        ⚠ {err}
+      </div>
+    )}
+
+    <button
+      type="button"
+      style={{
+        ...mkBtn(
+          "primary",
+          accentColor
+        ),
+        width: "100%",
+        padding: 13,
+        fontSize: 15,
+        opacity: busy ? 0.6 : 1,
+      }}
+      onClick={submit}
+      disabled={Boolean(busy)}
+    >
+      {Ic.plus}&nbsp;Créer le compte utilisateur
+    </button>
+  </div>
+
+  <div style={base.card}>
+    <div
+      style={{
+        fontWeight: 700,
+        fontSize: 15,
+        marginBottom: 4,
+      }}
+    >
+      Mode d'authentification du compte
+    </div>
+
+    <div
+      style={{
+        color: C.sub,
+        fontSize: 13,
+        marginBottom: 16,
+      }}
+    >
+      Standard : empreinte seule.
+      Premium : empreinte + rétine.
+    </div>
+
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns:
+          "1fr 1fr",
+        gap: 10,
+        marginBottom: 18,
+      }}
+    >
+      {[
+        [
+          "empreinte",
+          "🫆",
+          "Empreinte seule",
+          "Standard",
+        ],
+        [
+          "double",
+          "🫆 👁️",
+          "Empreinte + Rétine",
+          "Premium",
+        ],
+      ].map(
+        ([
+          mode,
+          icon,
+          title,
+          subtitle,
+        ]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() =>
+              changeMode(mode)
+            }
+            style={{
+              border:
+                `2px solid ${
+                  securityMode ===
+                  mode
+                    ? accentColor
+                    : C.border
+                }`,
+              borderRadius: 10,
+              padding: "13px 8px",
+              background:
+                securityMode === mode
+                  ? `${accentColor}0E`
+                  : C.bg,
+              cursor: "pointer",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 21,
+                marginBottom: 4,
+              }}
+            >
+              {icon}
+            </div>
+
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: 12,
+                color:
+                  securityMode === mode
+                    ? accentColor
+                    : C.text,
+              }}
+            >
+              {title}
+            </div>
+
+            <div
+              style={{
+                color: C.muted,
+                fontSize: 10,
+                marginTop: 2,
+              }}
+            >
+              {subtitle}
+            </div>
+          </button>
+        )
+      )}
+    </div>
+
+    <label style={base.label}>
+      Image empreinte *
+    </label>
+
+    <DropZone
+      done={Boolean(
+        bio?.empreinte
+      )}
+      label="Importer l'empreinte"
+      icon="🫆"
+      inputRef={refEmpreinte}
+      mode="empreinte"
+      color={C.accent}
+    />
+
+    {securityMode === "double" && (
+      <>
+        <label style={base.label}>
+          Image rétinienne Premium *
+        </label>
+
+        <DropZone
+          done={Boolean(
+            bio?.retine
+          )}
+          label="Importer l'image de rétine"
+          icon="👁️"
+          inputRef={refRetine}
+          mode="retine"
+          color={C.primary}
+        />
+      </>
+    )}
+
+    {busy && (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 12px",
+          background:
+            `${accentColor}0E`,
+          borderRadius: 8,
+          fontSize: 13,
+          color: accentColor,
+          marginBottom: 12,
+        }}
+      >
+        <span
+          style={{
+            animation:
+              "spin 1s linear infinite",
+            display: "inline-block",
+          }}
+        >
+          ⟳
+        </span>
+
+        {busy}
+      </div>
+    )}
+
+    {bio?.empreinte && (
+      <div
+        style={{
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 600,
+            fontSize: 13,
+            color: C.accent,
+            marginBottom: 6,
+          }}
+        >
+          🫆 Vecteur optimisé empreinte [6D]
+        </div>
+
+        <div
+          style={{
+            background: "#080F1E",
+            borderRadius: 8,
+            padding: 12,
+            fontFamily: "monospace",
+            fontSize: 11,
+            color: "#60A5FA",
+            wordBreak: "break-word",
+          }}
+        >
+          [
+          {bio.empreinte.optimizedArray
+            .map(value =>
+              value.toFixed(4)
+            )
+            .join(", ")}
+          ]
+        </div>
+      </div>
+    )}
+
+    {securityMode === "double" &&
+      bio?.retine && (
+        <div
+          style={{
+            marginBottom: 12,
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 600,
+              fontSize: 13,
+              color: C.primary,
+              marginBottom: 6,
+            }}
+          >
+            👁️ Vecteur optimisé rétine [5D]
+          </div>
+
+          <div
+            style={{
+              background: "#080F1E",
+              borderRadius: 8,
+              padding: 12,
+              fontFamily:
+                "monospace",
+              fontSize: 11,
+              color: "#4ADE80",
+              wordBreak:
+                "break-word",
+            }}
+          >
+            [
+            {bio.retine.optimizedArray
+              .map(value =>
+                value.toFixed(4)
+              )
+              .join(", ")}
+            ]
+          </div>
+        </div>
+      )}
+
+    <div
+      style={{
+        padding: "10px 12px",
+        background: C.bg,
+        borderRadius: 8,
+        border:
+          `1px solid ${C.border}`,
+        fontSize: 12,
+        color: C.muted,
+      }}
+    >
+      🔒 Les images ne sont pas stockées.
+      Seuls les vecteurs optimisés sont
+      conservés.
+    </div>
+
+    <style>
+      {`@keyframes spin{to{transform:rotate(360deg)}}`}
+    </style>
+  </div>
+</div>
+
+
+);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
