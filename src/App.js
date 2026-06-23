@@ -1865,6 +1865,7 @@ style={{ display: "none" }}
 onChange={event => {
 const selectedFile = event.target.files[0];
 
+```
       if (selectedFile) {
         setFile(selectedFile);
       }
@@ -1896,7 +1897,8 @@ const selectedFile = event.target.files[0];
           : file
           ? C.success
           : C.border
-      }`,
+      }
+  
       borderRadius: 10,
       padding: "20px",
       textAlign: "center",
@@ -1976,7 +1978,6 @@ const selectedFile = event.target.files[0];
 
 );
 
-return (
 <div
 style={{
 display: "grid",
