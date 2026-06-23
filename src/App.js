@@ -2461,7 +2461,7 @@ padding: 48,
   ) : ( 
     "Se connecter"
   )} 
-        }
+        
       </button>
 
       <style>
