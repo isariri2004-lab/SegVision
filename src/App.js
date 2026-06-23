@@ -3262,118 +3262,116 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
 // Utilisateur APP
 // ═══════════════════════════════════════════════════════════════════════════════
 function UtilisateurApp({ user, onLogout }) {
-  const [page,    setPage]    = useState("accueil");
-  const [result,  setResult]  = useState(null);
-  const [history, setHistory] = useState([]);
+return (
+<div
+style={{
+minHeight: "100vh",
+background: `linear-gradient(135deg, ${C.clientSidebar} 0%, #3B0D8C 100%)`,
+display: "flex",
+flexDirection: "column",
+...F,
+}}
+>
+<header
+style={{
+height: 72,
+padding: "0 32px",
+display: "flex",
+alignItems: "center",
+justifyContent: "space-between",
+borderBottom: "1px solid rgba(255,255,255,0.12)",
+background: "rgba(0,0,0,0.12)",
+}}
+> <Logo size={38} />
 
-  const onResult = (res) => {
-    setResult(res);
-    setHistory(prev=>[{
-      id:`P-${Date.now().toString().slice(-4)}`,
-      date: res.date,
-      mode: res.securityMode==="double"?"👁️🫆 Rétine + Empreinte":"👁️ Rétine",
-      retineDims: 5,
-      empreinteDims: res.empreinte ? 6 : null,
-    }, ...prev]);
-    setPage("resultats");
-  };
+```
+    <button
+      onClick={onLogout}
+      style={{
+        ...mkBtn("ghost"),
+        color: "#FFFFFF",
+        background: "rgba(255,255,255,0.10)",
+        border: "1px solid rgba(255,255,255,0.25)",
+      }}
+    >
+      {Ic.logout}
+      Déconnexion
+    </button>
+  </header>
 
-  const NAV = [
-    { id:"accueil",    label:"Accueil",         icon:Ic.grid },
-    { id:"analyse",    label:"Mon analyse",      icon:Ic.scan },
-    { id:"resultats",  label:"Mes résultats",    icon:Ic.chart },
-    { id:"historique", label:"Mon historique",   icon:Ic.clock },
-    { id:"infos",      label:"Comment ça marche",icon:Ic.eye },
-  ];
+  <main
+    style={{
+      flex: 1,
+```
 
-  return (
-    <Shell user={user} page={page} setPage={setPage} navItems={NAV} onLogout={onLogout}
-      sidebarColor={C.clientSidebar} activeColor={C.clientActive} topRight={<span style={mkBadge(C.clientActive)}>Utilisateur</span>}>
-
-      {/* ACCUEIL */}
-      {page==="accueil" && (
-        <>
-          <div style={{ background:`linear-gradient(135deg,${C.clientSidebar} 0%,#3B0D8C 100%)`,borderRadius:16,padding:"36px 40px",marginBottom:24,color:"#fff" }}>
-            <div style={{ fontSize:12,color:"#C4B5FD",fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em" }}>SegVision · Biométrie</div>
-            <h1 style={{ fontSize:24,fontWeight:900,marginBottom:10 }}>Bonjour, {user.name} 👋</h1>
-            <p style={{ color:"#DDD6FE",fontSize:14,maxWidth:500,lineHeight:1.6,marginBottom:20 }}>
-              Importez votre image rétinienne (et optionnellement votre empreinte) pour générer vos vecteurs biométriques optimisés.
-            </p>
-            <button style={{ ...mkBtn("primary","#fff"),color:C.clientSidebar,padding:"11px 22px",fontSize:14,fontWeight:700 }} onClick={()=>setPage("analyse")}>
-              {Ic.scan}&nbsp;Lancer mon analyse
-            </button>
-          </div>
-
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20 }}>
-            {[["👁️","Rétine","Vaisseaux segmentés"],["📐","Squelette","1px d'épaisseur"],["🧬","5 features","OvLen,TI,MedTor,D1,D2"],["🔐","Vecteur","Non réversible"]].map(([icon,t,d])=>(
-              <div key={t} style={base.card}><div style={{ fontSize:24,marginBottom:8 }}>{icon}</div><div style={{ fontWeight:700,fontSize:13,marginBottom:3 }}>{t}</div><div style={{ color:C.muted,fontSize:11 }}>{d}</div></div>
-            ))}
-          </div>
-
-          {history.length>0 && (
-            <>
-              <div style={{ fontWeight:700,fontSize:15,marginBottom:12 }}>Ma dernière analyse</div>
-              <div style={{ ...base.card,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-                <div><div style={{ fontWeight:700,fontSize:15,marginBottom:4 }}>{history[0].mode}</div><div style={{ color:C.sub,fontSize:13 }}>{history[0].date} · {history[0].retineDims}D rétine{history[0].empreinteDims?` + ${history[0].empreinteDims}D empreinte`:""}</div></div>
-                <button style={mkBtn("primary",C.clientActive)} onClick={()=>setPage("resultats")}>{Ic.eye}&nbsp;Voir</button>
-              </div>
-            </>
-          )}
-        </>
-      )}
-
-      {/* ANALYSE */}
-      {page==="analyse" && <UploadPanel onResult={onResult} accentColor={C.clientActive} showId={true} defaultId={user.name} />}
-
-      {/* RÉSULTATS */}
-      {page==="resultats" && <ResultsPanel result={result} accentColor={C.clientActive} onNew={()=>setPage("analyse")} />}
-
-      {/* HISTORIQUE */}
-      {page==="historique" && (
-        <>
-          <h2 style={{ fontSize:18,fontWeight:800,marginBottom:4 }}>Mon historique</h2>
-          <p style={{ color:C.sub,fontSize:13,marginBottom:16 }}>{history.length} analyse(s) cette session</p>
-          {history.length===0
-            ? <div style={{ ...base.card,textAlign:"center",padding:"48px",color:C.muted }}><div style={{ fontSize:40,marginBottom:12 }}>📂</div><div style={{ marginBottom:16 }}>Aucune analyse effectuée.</div><button style={mkBtn("primary",C.clientActive)} onClick={()=>setPage("analyse")}>{Ic.scan}&nbsp;Analyser</button></div>
-            : <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden" }}>
-                <table style={{ width:"100%",borderCollapse:"collapse" }}>
-                  <thead><tr><th style={base.th}>ID</th><th style={base.th}>Date</th><th style={base.th}>Mode</th><th style={base.th}>Dimensions</th></tr></thead>
-                  <tbody>{history.map((r,i)=>(
-                    <tr key={r.id} style={{ background:i%2===0?C.surface:C.bg }}>
-                      <td style={base.td}><code style={{ fontSize:12,color:C.clientActive }}>{r.id}</code></td>
-                      <td style={{ ...base.td,fontSize:12 }}>{r.date}</td>
-                      <td style={base.td}>{r.mode}</td>
-                      <td style={base.td}>{r.retineDims}D rétine{r.empreinteDims?` + ${r.empreinteDims}D empreinte`:""}</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-          }
-        </>
-      )}
-
-      {/* INFOS */}
-      {page==="infos" && (
-        <>
-          <h2 style={{ fontSize:18,fontWeight:800,marginBottom:4 }}>Comment ça marche ?</h2>
-          <p style={{ color:C.sub,fontSize:13,marginBottom:20 }}>Le pipeline biométrique SegVision étape par étape.</p>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
-            {[
-              {icon:"👁️",t:"Image rétinienne",d:"Vous importez une image de votre rétine (fond d'œil). L'image est redimensionnée à 512×512 pixels."},
-              {icon:"🩸",t:"Segmentation vaisseaux",d:"L'algorithme détecte les vaisseaux sanguins rétiniens par différence de Gaussiennes multi-échelle."},
-              {icon:"📐",t:"Squelettisation",d:"Les vaisseaux sont réduits à 1 pixel d'épaisseur (algorithme Zhang-Suen) pour mesurer précisément leur géométrie."},
-              {icon:"🧬",t:"Features rétine",d:"OvLen (longueur vasculaire), TI (tortuosité moyenne), MedTor (tortuosité médiane), D1 (diamètre moyen), D2 (variation diamètre)."},
-              {icon:"🫆",t:"Features empreinte (optionnel)",d:"Nombre de minuties, bifurcations, terminaisons, densité, orientation moyenne et variation des orientations."},
-              {icon:"🔐",t:"Vecteur optimisé",d:"Seules les features les plus discriminantes sont conservées (5D rétine + 6D empreinte). L'image est détruite."},
-            ].map(item=>(
-              <div key={item.t} style={base.card}><div style={{ fontSize:28,marginBottom:10 }}>{item.icon}</div><div style={{ fontWeight:700,fontSize:14,marginBottom:8 }}>{item.t}</div><div style={{ color:C.sub,fontSize:13,lineHeight:1.6 }}>{item.d}</div></div>
-            ))}
-          </div>
-        </>
-      )}
-    </Shell>
-  );
 }
+Déconnexion </button> </header>
+
+  <main
+    style={{
+      flex: 1,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 32,
+    }}
+  >
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 720,
+        background: C.surface,
+        borderRadius: 22,
+        padding: "64px 48px",
+        textAlign: "center",
+        boxShadow: "0 24px 70px rgba(0,0,0,0.30)",
+      }}
+    >
+      <div
+        style={{
+          width: 82,
+          height: 82,
+          borderRadius: "50%",
+          background: C.successBg,
+          color: C.success,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          margin: "0 auto 24px",
+          fontSize: 38,
+        }}
+      >
+        ✓
+      </div>
+
+      <h1
+        style={{
+          margin: "0 0 16px",
+          fontSize: 34,
+          fontWeight: 900,
+          color: C.text,
+        }}
+      >
+        Bonjour {user.username}
+      </h1>
+
+      <p
+        style={{
+          margin: 0,
+          fontSize: 20,
+          color: C.sub,
+          lineHeight: 1.6,
+        }}
+      >
+        Vous avez accès au site.
+      </p>
+    </div>
+  </main>
+</div>
+
+);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROOT
