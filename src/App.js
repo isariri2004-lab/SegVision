@@ -1868,6 +1868,9 @@ if (u.role === "client") {
   setErr("");
 
   try {
+ 
+    setComparisonReport(null);
+
     setLoadingMessage(
       "Vérification de l'empreinte..."
     );
@@ -1884,14 +1887,7 @@ if (u.role === "client") {
         u.empreinteVector
       );
 
-    if (!empreinteComparison.match) {
-      setErr(
-        `Empreinte non reconnue — similarité ${empreinteComparison.similarity.toFixed(
-          1
-        )} %.`
-      );
-      return;
-    }
+    let retineComparison = null;
 
     if (requiredMode === "double") {
       setLoadingMessage(
@@ -1904,21 +1900,55 @@ if (u.role === "client") {
           "retine"
         );
 
-      const retineComparison =
+      retineComparison =
         compareRetinaVectors(
           retineResult.optimizedArray,
           u.retineVector
         );
-
-      if (!retineComparison.match) {
-        setErr(
-          `Rétine non reconnue — similarité ${retineComparison.similarity.toFixed(
-            1
-          )} %.`
-        );
-        return;
-      }
     }
+
+    const globalMatch =
+      empreinteComparison.match &&
+      (
+        requiredMode !== "double" ||
+        retineComparison?.match
+      );
+
+    setComparisonReport({
+      match: globalMatch,
+
+      empreinte: {
+        match:
+          empreinteComparison.match,
+        similarity:
+          empreinteComparison.similarity,
+      },
+
+      retine: retineComparison
+        ? {
+            match:
+              retineComparison.match,
+            similarity:
+              retineComparison.similarity,
+          }
+        : null,
+    });
+
+    // Laisse le verdict visible avant la connexion.
+    await new Promise(resolve =>
+      setTimeout(resolve, 1400)
+    );
+
+    if (!globalMatch) {
+      setErr(
+        requiredMode === "double"
+          ? "L'empreinte et la rétine doivent toutes les deux correspondre."
+          : "L'empreinte ne correspond pas à celle enregistrée."
+      );
+
+      return;
+    }
+
   } catch (error) {
     setErr(
       `Erreur pendant l'authentification : ${
