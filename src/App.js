@@ -1768,341 +1768,1414 @@ function Shell({ user, page, setPage, navItems, onLogout, sidebarColor, activeCo
 // UPLOAD PANEL — Mode rétine seule ou rétine + empreinte (sécurité renforcée)
 // ═══════════════════════════════════════════════════════════════════════════════
 function UploadPanel({ onResult, accentColor=C.primary, defaultId="", showId=true }) {
-  const [securityMode, setSecurityMode] = useState("retine"); // "retine" | "double"
-  const [fileRetine,    setFileRetine]    = useState(null);
-  const [fileEmpreinte, setFileEmpreinte] = useState(null);
-  const [pid,     setPid]     = useState(defaultId);
-  const [dragR,   setDragR]   = useState(false);
-  const [dragE,   setDragE]   = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [msg,     setMsg]     = useState("");
-  const [err,     setErr]     = useState("");
-  const fileRefR = useRef();
-  const fileRefE = useRef();
+const [securityMode, setSecurityMode] = useState("empreinte");
+const [fileRetine, setFileRetine] = useState(null);
+const [fileEmpreinte, setFileEmpreinte] = useState(null);
+const [pid, setPid] = useState(defaultId);
+const [dragR, setDragR] = useState(false);
+const [dragE, setDragE] = useState(false);
+const [loading, setLoading] = useState(false);
+const [msg, setMsg] = useState("");
+const [err, setErr] = useState("");
 
-  const canRun = fileRetine && (securityMode === "retine" || fileEmpreinte);
+const fileRefR = useRef();
+const fileRefE = useRef();
 
-  const run = async () => {
-    if (!canRun) return;
-    setLoading(true); setErr("");
-    try {
-      const steps = [
-        "Chargement de l'image rétinienne...",
-        "Segmentation des vaisseaux...",
-        "Squelettisation (1px)...",
-        "Extraction OvLen, TI, MedTor, D1, D2...",
-        securityMode==="double" ? "Traitement empreinte digitale..." : "Génération des vecteurs...",
-        "Finalisation...",
-      ];
-      for (const s of steps) { setMsg(s); await new Promise(r=>setTimeout(r,350+Math.random()*200)); }
+const canRun =
+!!fileEmpreinte &&
+(securityMode === "empreinte" || !!fileRetine);
 
-      // Pipeline rétine
-      const retineResult = await processBiometric(fileRetine, "retine");
+const run = async () => {
+if (!canRun) return;
 
-      let empreinteResult = null;
-      if (securityMode === "double" && fileEmpreinte) {
-        empreinteResult = await processBiometric(fileEmpreinte, "empreinte");
-      }
-      onResult({
-        retine: retineResult,
-        empreinte: empreinteResult,
-        securityMode,
-        UtilisateurId: pid || "Anonyme",
-        fileNameRetine: fileRetine.name,
-        fileNameEmpreinte: fileEmpreinte?.name || null,
-        date: new Date().toLocaleString("fr-FR").slice(0,16),
-      });
-    } catch(e) { setErr(`Erreur : ${e.message}`); }
-    finally { setLoading(false); setMsg(""); }
-  };
+setLoading(true);
+setErr("");
 
-  const DropZone = ({ file, setFile, drag, setDrag, fileRef, label, icon, accept }) => (
-    <>
-      <input ref={fileRef} type="file" accept={accept} style={{ display:"none" }}
-        onChange={e=>e.target.files[0]&&setFile(e.target.files[0])} />
-      <div onClick={()=>fileRef.current.click()}
-        onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)}
-        onDrop={e=>{e.preventDefault();setDrag(false);const f=e.dataTransfer.files[0];if(f)setFile(f);}}
-        style={{ border:`2px dashed ${drag?accentColor:file?C.success:C.border}`, borderRadius:10, padding:"20px", textAlign:"center", cursor:"pointer", background:drag?accentColor+"0A":file?C.successBg:C.bg, transition:"all 0.15s", marginBottom:12 }}>
-        {file
-          ? <><div style={{ fontSize:24, marginBottom:4 }}>✅</div><div style={{ fontWeight:700, color:C.success, fontSize:13 }}>{file.name}</div><div style={{ color:C.muted, fontSize:11 }}>{(file.size/1024).toFixed(1)} Ko</div></>
-          : <><div style={{ fontSize:28, marginBottom:6 }}>{icon}</div><div style={{ fontWeight:600, color:accentColor, fontSize:13 }}>{label}</div><div style={{ color:C.muted, fontSize:11 }}>PNG, JPG, BMP</div></>
-        }
-      </div>
-    </>
+try {
+  const steps = [
+    "Chargement de l'empreinte digitale...",
+    "Segmentation des crêtes digitales...",
+    "Squelettisation et détection des minuties...",
+    "Extraction du vecteur optimisé empreinte...",
+    securityMode === "double"
+      ? "Traitement Premium de la rétine..."
+      : "Génération de la signature biométrique...",
+    "Finalisation...",
+  ];
+
+  for (const step of steps) {
+    setMsg(step);
+
+    await new Promise(resolve =>
+      setTimeout(resolve, 350 + Math.random() * 200)
+    );
+  }
+
+  // La fonction de segmentation actuelle est conservée.
+  const empreinteResult = await processBiometric(
+    fileEmpreinte,
+    "empreinte"
   );
 
-  return (
-    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:24 }}>
-      {/* Left : choix du mode + upload */}
-      <div style={base.card}>
-        <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Mode d'authentification</div>
-        <div style={{ color:C.sub, fontSize:13, marginBottom:16 }}>Rétine seule ou rétine + empreinte (sécurité renforcée)</div>
+  let retineResult = null;
 
-        {/* Sélection mode */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+  if (securityMode === "double" && fileRetine) {
+    retineResult = await processBiometric(
+      fileRetine,
+      "retine"
+    );
+  }
+
+  onResult({
+    empreinte: empreinteResult,
+    retine: retineResult,
+    securityMode,
+    UtilisateurId: pid || "Anonyme",
+    fileNameEmpreinte: fileEmpreinte.name,
+    fileNameRetine: fileRetine?.name || null,
+    date: new Date()
+      .toLocaleString("fr-FR")
+      .slice(0, 16),
+  });
+} catch (error) {
+  setErr(`Erreur : ${error.message}`);
+} finally {
+  setLoading(false);
+  setMsg("");
+}
+
+};
+
+const DropZone = ({
+file,
+setFile,
+drag,
+setDrag,
+fileRef,
+label,
+icon,
+accept,
+}) => (
+<>
+<input
+ref={fileRef}
+type="file"
+accept={accept}
+style={{ display: "none" }}
+onChange={event => {
+const selectedFile = event.target.files[0];
+
+      if (selectedFile) {
+        setFile(selectedFile);
+      }
+    }}
+  />
+
+  <div
+    onClick={() => fileRef.current.click()}
+    onDragOver={event => {
+      event.preventDefault();
+      setDrag(true);
+    }}
+    onDragLeave={() => setDrag(false)}
+    onDrop={event => {
+      event.preventDefault();
+      setDrag(false);
+
+      const droppedFile =
+        event.dataTransfer.files[0];
+
+      if (droppedFile) {
+        setFile(droppedFile);
+      }
+    }}
+    style={{
+      border: `2px dashed ${
+        drag
+          ? accentColor
+          : file
+          ? C.success
+          : C.border
+      }`,
+      borderRadius: 10,
+      padding: "20px",
+      textAlign: "center",
+      cursor: "pointer",
+      background: drag
+        ? accentColor + "0A"
+        : file
+        ? C.successBg
+        : C.bg,
+      transition: "all 0.15s",
+      marginBottom: 12,
+    }}
+  >
+    {file ? (
+      <>
+        <div
+          style={{
+            fontSize: 24,
+            marginBottom: 4,
+          }}
+        >
+          ✅
+        </div>
+
+        <div
+          style={{
+            fontWeight: 700,
+            color: C.success,
+            fontSize: 13,
+          }}
+        >
+          {file.name}
+        </div>
+
+        <div
+          style={{
+            color: C.muted,
+            fontSize: 11,
+          }}
+        >
+          {(file.size / 1024).toFixed(1)} Ko
+        </div>
+      </>
+    ) : (
+      <>
+        <div
+          style={{
+            fontSize: 28,
+            marginBottom: 6,
+          }}
+        >
+          {icon}
+        </div>
+
+        <div
+          style={{
+            fontWeight: 600,
+            color: accentColor,
+            fontSize: 13,
+          }}
+        >
+          {label}
+        </div>
+
+        <div
+          style={{
+            color: C.muted,
+            fontSize: 11,
+          }}
+        >
+          PNG, JPG, BMP
+        </div>
+      </>
+    )}
+  </div>
+</>
+
+);
+
+return (
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "1fr 1fr",
+gap: 24,
+}}
+>
+
+<div
+style={{
+fontWeight: 700,
+fontSize: 15,
+marginBottom: 4,
+}}
+>
+Mode d'authentification
+
+
+
+    <div
+      style={{
+        color: C.sub,
+        fontSize: 13,
+        marginBottom: 16,
+      }}
+    >
+      Empreinte seule ou empreinte + rétine
+      en mode Premium
+    </div>
+
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 10,
+        marginBottom: 20,
+      }}
+    >
+      {[
+        [
+          "empreinte",
+          "🫆",
+          "Empreinte seule",
+          "Niveau standard",
+        ],
+        [
+          "double",
+          "🫆 👁️",
+          "Empreinte + Rétine",
+          "Mode Premium",
+        ],
+      ].map(
+        ([
+          mode,
+          icon,
+          title,
+          description,
+        ]) => (
+          <div
+            key={mode}
+            onClick={() =>
+              setSecurityMode(mode)
+            }
+            style={{
+              border: `2px solid ${
+                securityMode === mode
+                  ? accentColor
+                  : C.border
+              }`,
+              borderRadius: 10,
+              padding: "14px",
+              cursor: "pointer",
+              background:
+                securityMode === mode
+                  ? accentColor + "0E"
+                  : C.bg,
+              textAlign: "center",
+              transition: "all 0.15s",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 22,
+                marginBottom: 4,
+              }}
+            >
+              {icon}
+            </div>
+
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: 13,
+                color:
+                  securityMode === mode
+                    ? accentColor
+                    : C.text,
+              }}
+            >
+              {title}
+            </div>
+
+            <div
+              style={{
+                color: C.muted,
+                fontSize: 11,
+                marginTop: 2,
+              }}
+            >
+              {description}
+            </div>
+          </div>
+        )
+      )}
+    </div>
+
+    <label style={base.label}>
+      Image empreinte digitale *
+    </label>
+
+    <DropZone
+      file={fileEmpreinte}
+      setFile={setFileEmpreinte}
+      drag={dragE}
+      setDrag={setDragE}
+      fileRef={fileRefE}
+      label="Déposer l'image d'empreinte"
+      icon="🫆"
+      accept=".png,.jpg,.jpeg,.bmp"
+    />
+
+    {securityMode === "double" && (
+      <>
+        <label style={base.label}>
+          Image rétinienne *
+        </label>
+
+        <DropZone
+          file={fileRetine}
+          setFile={setFileRetine}
+          drag={dragR}
+          setDrag={setDragR}
+          fileRef={fileRefR}
+          label="Déposer l'image de rétine"
+          icon="👁️"
+          accept=".png,.jpg,.jpeg,.bmp"
+        />
+      </>
+    )}
+
+    {showId && (
+      <>
+        <label style={base.label}>
+          Identifiant
+        </label>
+
+        <input
+          style={base.input}
+          type="text"
+          placeholder="Ex : Jean Martin"
+          value={pid}
+          onChange={event =>
+            setPid(event.target.value)
+          }
+        />
+      </>
+    )}
+
+    {securityMode === "double" && (
+      <div
+        style={{
+          padding: "10px 12px",
+          background: `${accentColor}10`,
+          borderRadius: 8,
+          border: `1px solid ${accentColor}30`,
+          fontSize: 12,
+          color: accentColor,
+          marginBottom: 12,
+        }}
+      >
+        ⭐ Mode Premium : l'empreinte et la
+        rétine doivent toutes les deux
+        correspondre.
+      </div>
+    )}
+
+    <div
+      style={{
+        padding: "10px 12px",
+        background: C.bg,
+        borderRadius: 8,
+        border: `1px solid ${C.border}`,
+        fontSize: 12,
+        color: C.muted,
+      }}
+    >
+      🔒 Images non stockées — seuls les
+      vecteurs optimisés sont conservés
+    </div>
+  </div>
+
+  <div style={base.card}>
+    <div
+      style={{
+        fontWeight: 700,
+        fontSize: 15,
+        marginBottom: 4,
+      }}
+    >
+      Pipeline de traitement
+    </div>
+
+    <div
+      style={{
+        color: C.sub,
+        fontSize: 13,
+        marginBottom: 16,
+      }}
+    >
+      Étapes exécutées automatiquement
+    </div>
+
+    {[
+      {
+        n: "1",
+        icon: "🖼️",
+        t: "Prétraitement",
+        d: "Redimensionnement 512×512 et normalisation",
+      },
+      {
+        n: "2",
+        icon: "🫆",
+        t: "Segmentation empreinte",
+        d: "Détection des crêtes digitales avec le pipeline existant",
+      },
+      {
+        n: "3",
+        icon: "📐",
+        t: "Squelettisation",
+        d: "Amincissement à 1 pixel et détection des minuties",
+      },
+      {
+        n: "4",
+        icon: "🧬",
+        t: "Vecteur empreinte",
+        d: "Minuties, bifurcations, terminaisons et orientations",
+      },
+      {
+        n: "5",
+        icon:
+          securityMode === "double"
+            ? "👁️"
+            : "⚡",
+        t:
+          securityMode === "double"
+            ? "Analyse rétinienne Premium"
+            : "Signature optimisée",
+        d:
+          securityMode === "double"
+            ? "Segmentation des vaisseaux, squelette et vecteur rétinien optimisé"
+            : "Vecteur optimisé empreinte utilisé pour l'authentification",
+      },
+    ].map(step => (
+      <div
+        key={step.n}
+        style={{
+          display: "flex",
+          gap: 12,
+          marginBottom: 12,
+          padding: "12px",
+          background: C.bg,
+          borderRadius: 9,
+          border: `1px solid ${C.border}`,
+        }}
+      >
+        <div
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: "50%",
+            background: accentColor + "18",
+            color: accentColor,
+            fontWeight: 800,
+            fontSize: 13,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          {step.n}
+        </div>
+
+        <div>
+          <div
+            style={{
+              fontWeight: 700,
+              fontSize: 13,
+              marginBottom: 2,
+            }}
+          >
+            {step.icon} {step.t}
+          </div>
+
+          <div
+            style={{
+              color: C.sub,
+              fontSize: 11,
+              lineHeight: 1.5,
+            }}
+          >
+            {step.d}
+          </div>
+        </div>
+      </div>
+    ))}
+
+    <div
+      style={{
+        padding: "12px 14px",
+        background: accentColor + "0E",
+        borderRadius: 9,
+        marginBottom: 16,
+        fontSize: 13,
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 700,
+          color: accentColor,
+          marginBottom: 6,
+        }}
+      >
+        Récapitulatif
+      </div>
+
+      <div style={{ color: C.sub }}>
+        Mode :{" "}
+        <strong style={{ color: C.text }}>
+          {securityMode === "double"
+            ? "⭐ Empreinte + Rétine"
+            : "Empreinte seule"}
+        </strong>
+      </div>
+
+      <div
+        style={{
+          color: C.sub,
+          marginTop: 3,
+        }}
+      >
+        Empreinte :{" "}
+        <strong
+          style={{
+            color: fileEmpreinte
+              ? C.text
+              : C.muted,
+          }}
+        >
+          {fileEmpreinte?.name ||
+            "Non sélectionnée"}
+        </strong>
+      </div>
+
+      {securityMode === "double" && (
+        <div
+          style={{
+            color: C.sub,
+            marginTop: 3,
+          }}
+        >
+          Rétine :{" "}
+          <strong
+            style={{
+              color: fileRetine
+                ? C.text
+                : C.muted,
+            }}
+          >
+            {fileRetine?.name ||
+              "Non sélectionnée"}
+          </strong>
+        </div>
+      )}
+    </div>
+
+    {err && (
+      <div
+        style={{
+          background: C.redBg,
+          color: C.red,
+          border: `1px solid ${C.red}30`,
+          borderRadius: 8,
+          padding: "10px 14px",
+          marginBottom: 12,
+          fontSize: 13,
+        }}
+      >
+        ⚠ {err}
+      </div>
+    )}
+
+    <button
+      style={{
+        ...mkBtn("primary", accentColor),
+        width: "100%",
+        padding: "14px",
+        fontSize: 15,
+        opacity:
+          !canRun || loading ? 0.6 : 1,
+      }}
+      onClick={run}
+      disabled={!canRun || loading}
+    >
+      {loading ? (
+        <>
+          <span
+            style={{
+              animation:
+                "spin 1s linear infinite",
+              display: "inline-block",
+            }}
+          >
+            ⟳
+          </span>
+          &nbsp;{msg}
+        </>
+      ) : (
+        <>
+          {Ic.scan}&nbsp;Lancer l'analyse
+        </>
+      )}
+    </button>
+
+    {loading && (
+      <div
+        style={{
+          height: 5,
+          background: C.border,
+          borderRadius: 4,
+          overflow: "hidden",
+          position: "relative",
+          marginTop: 10,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            height: "100%",
+            background: accentColor,
+            animation:
+              "progress 3s ease-in-out forwards",
+            borderRadius: 4,
+          }}
+        />
+      </div>
+    )}
+
+    <style>
+      {`
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        @keyframes progress {
+          from {
+            width: 0%;
+          }
+
+          to {
+            width: 100%;
+          }
+        }
+      `}
+    </style>
+  </div>
+</div>
+
+);
+}
+function ResultsPanel({
+result,
+accentColor = C.primary,
+onNew,
+onEnroll,
+onAuth,
+}) {
+const [
+fingerViewMode,
+setFingerViewMode,
+] = useState("overlay");
+
+const [
+retinaViewMode,
+setRetinaViewMode,
+] = useState("overlay");
+
+if (!result) {
+return (
+<div
+style={{
+textAlign: "center",
+padding: "80px 0",
+color: C.sub,
+}}
+>
+<div
+style={{
+fontSize: 52,
+marginBottom: 16,
+}}
+>
+🧬
+
+
+
+    <div
+      style={{
+        fontSize: 16,
+        fontWeight: 600,
+        marginBottom: 8,
+      }}
+    >
+      Aucune analyse effectuée
+    </div>
+
+    <div style={{ marginBottom: 24 }}>
+      Importez une empreinte digitale pour
+      lancer le pipeline.
+    </div>
+
+    {onNew && (
+      <button
+        style={mkBtn(
+          "primary",
+          accentColor
+        )}
+        onClick={onNew}
+      >
+        {Ic.scan}&nbsp;Analyser une image
+      </button>
+    )}
+  </div>
+);
+
+}
+
+const empreinte = result.empreinte;
+const retine = result.retine;
+const isDouble =
+result.securityMode === "double";
+
+const retinaKeys = [
+"OvLen",
+"TI",
+"MedTor",
+"D1",
+"D2",
+];
+
+const fingerprintKeys = [
+"nbMinutiae",
+"nbBifurcations",
+"nbTerminations",
+"minutiaeDensity",
+"meanOrientation",
+"orientationVariation",
+];
+
+const FullVectorBlock = ({
+title,
+data,
+keys,
+color,
+}) => (
+
+<div
+style={{
+fontWeight: 700,
+fontSize: 13,
+color,
+marginBottom: 8,
+textTransform: "uppercase",
+letterSpacing: "0.05em",
+}}
+>
+{title}
+
+
+
+  <div
+    style={{
+      background: "#080F1E",
+      borderRadius: 10,
+      padding: "14px 16px",
+      fontFamily: "monospace",
+      fontSize: 11,
+      lineHeight: 1.9,
+    }}
+  >
+    {keys.map(key => (
+      <div key={key}>
+        <span style={{ color: "#94A3B8" }}>
+          {key}:{" "}
+        </span>
+
+        <span style={{ color: "#60A5FA" }}>
+          {typeof data[key] === "number"
+            ? data[key].toFixed(6)
+            : data[key]}
+        </span>
+      </div>
+    ))}
+  </div>
+</div>
+
+);
+
+const OptimizedVector = ({
+title,
+vector,
+keys,
+color,
+}) => (
+
+<div
+style={{
+fontWeight: 800,
+fontSize: 16,
+marginBottom: 5,
+}}
+>
+{title}
+
+
+
+  <div
+    style={{
+      color: C.sub,
+      fontSize: 12,
+      marginBottom: 18,
+    }}
+  >
+    Signature utilisée pour
+    l'authentification biométrique
+  </div>
+
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns:
+        "repeat(2,minmax(0,1fr))",
+      gap: 12,
+      marginBottom: 18,
+    }}
+  >
+    {keys.map((key, index) => (
+      <div
+        key={key}
+        style={{
+          background: C.bg,
+          border: `1px solid ${C.border}`,
+          borderRadius: 10,
+          padding: "14px",
+        }}
+      >
+        <div
+          style={{
+            color: C.muted,
+            fontSize: 11,
+            fontWeight: 700,
+            marginBottom: 6,
+          }}
+        >
+          {key}
+        </div>
+
+        <div
+          style={{
+            color,
+            fontFamily: "monospace",
+            fontSize: 18,
+            fontWeight: 800,
+            wordBreak: "break-all",
+          }}
+        >
+          {Number(
+            vector[index]
+          ).toFixed(6)}
+        </div>
+      </div>
+    ))}
+  </div>
+
+  <div
+    style={{
+      background: "#080F1E",
+      borderRadius: 10,
+      padding: "16px",
+      fontFamily: "monospace",
+      fontSize: 12,
+      color: "#4ADE80",
+      lineHeight: 1.7,
+      wordBreak: "break-word",
+    }}
+  >
+    [
+    {vector
+      .map(value =>
+        Number(value).toFixed(4)
+      )
+      .join(", ")}
+    ]
+  </div>
+</div>
+
+);
+
+const ImageViewer = ({
+title,
+data,
+viewMode,
+setViewMode,
+color,
+legend,
+}) => (
+
+<div
+style={{
+display: "flex",
+alignItems: "center",
+justifyContent: "space-between",
+marginBottom: 12,
+gap: 10,
+flexWrap: "wrap",
+}}
+>
+<div
+style={{
+fontWeight: 700,
+fontSize: 14,
+}}
+>
+{title}
+
+
+
+    <div
+      style={{
+        display: "flex",
+        gap: 6,
+        flexWrap: "wrap",
+      }}
+    >
+      {[
+        ["original", "Original"],
+        ["overlay", "Superposition"],
+        ["mask", "Masque"],
+        ["skel", "Squelette"],
+      ].map(([value, label]) => (
+        <button
+          key={value}
+          style={{
+            ...mkBtn(
+              viewMode === value
+                ? "primary"
+                : "ghost",
+              color
+            ),
+            padding: "4px 9px",
+            fontSize: 11,
+          }}
+          onClick={() =>
+            setViewMode(value)
+          }
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  </div>
+
+  <div
+    style={{
+      background: "#080F1E",
+      borderRadius: 10,
+      overflow: "hidden",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      height: 300,
+    }}
+  >
+    <img
+      key={viewMode}
+      src={
+        viewMode === "original"
+          ? data.originalUrl
+          : viewMode === "mask"
+          ? data.maskUrl
+          : viewMode === "skel"
+          ? data.skelUrl
+          : data.overlayUrl
+      }
+      alt={title}
+      style={{
+        maxWidth: "100%",
+        maxHeight: "100%",
+        objectFit: "contain",
+      }}
+    />
+  </div>
+
+  <div
+    style={{
+      marginTop: 8,
+      fontSize: 11,
+      color: C.muted,
+      textAlign: "center",
+    }}
+  >
+    {viewMode === "original"
+      ? "🖼️ Image originale"
+      : viewMode === "mask"
+      ? "⬜ Masque binaire"
+      : viewMode === "skel"
+      ? "📐 Squelette à 1 pixel"
+      : legend}
+  </div>
+</div>
+
+);
+
+return (
+<>
+<div
+style={{
+display: "flex",
+alignItems: "flex-start",
+justifyContent: "space-between",
+marginBottom: 20,
+flexWrap: "wrap",
+gap: 12,
+}}
+>
+
+<div
+style={{
+display: "flex",
+alignItems: "center",
+gap: 8,
+marginBottom: 6,
+flexWrap: "wrap",
+}}
+>
+
+✓ Pipeline complet
+
+
+
+        <span style={mkBadge(C.accent)}>
+          🫆 Empreinte
+        </span>
+
+        {isDouble && (
+          <span style={mkBadge(C.primary)}>
+            👁️ Rétine
+          </span>
+        )}
+
+        {isDouble && (
+          <span style={mkBadge(C.warning)}>
+            ⭐ Mode Premium
+          </span>
+        )}
+
+        <span
+          style={{
+            color: C.muted,
+            fontSize: 13,
+          }}
+        >
+          {result.UtilisateurId}
+        </span>
+      </div>
+
+      <h2
+        style={{
+          fontSize: 18,
+          fontWeight: 800,
+        }}
+      >
+        Segmentation · Squelette ·
+        Signature biométrique
+      </h2>
+    </div>
+
+    <div
+      style={{
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+      }}
+    >
+      {onNew && (
+        <button
+          style={mkBtn("ghost")}
+          onClick={onNew}
+        >
+          {Ic.scan}&nbsp;Nouvelle analyse
+        </button>
+      )}
+
+      {onEnroll && (
+        <button
+          style={mkBtn(
+            "soft",
+            C.success
+          )}
+          onClick={() =>
+            onEnroll(result)
+          }
+        >
+          {Ic.plus}&nbsp;Enrôler
+        </button>
+      )}
+
+      {onAuth && (
+        <button
+          style={mkBtn(
+            "primary",
+            accentColor
+          )}
+          onClick={() =>
+            onAuth(result)
+          }
+        >
+          {Ic.search}&nbsp;Authentifier
+        </button>
+      )}
+    </div>
+  </div>
+
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns:
+        "minmax(0,1fr) minmax(380px,1fr)",
+      gap: 20,
+      alignItems: "stretch",
+    }}
+  >
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+      }}
+    >
+      <ImageViewer
+        title="🫆 Visualisation empreinte"
+        data={empreinte}
+        viewMode={fingerViewMode}
+        setViewMode={setFingerViewMode}
+        color={C.accent}
+        legend="🔵 Bleu = crêtes digitales détectées"
+      />
+
+      <div style={base.card}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(3,1fr)",
+            gap: 8,
+            marginBottom: 16,
+          }}
+        >
           {[
-            ["retine","👁️","Rétine seule","Niveau standard"],
-            ["double","👁️🫆","Rétine + Empreinte","Sécurité renforcée"],
-          ].map(([m,icon,t,d])=>(
-            <div key={m} onClick={()=>setSecurityMode(m)}
-              style={{ border:`2px solid ${securityMode===m?accentColor:C.border}`, borderRadius:10, padding:"14px", cursor:"pointer", background:securityMode===m?accentColor+"0E":C.bg, textAlign:"center", transition:"all 0.15s" }}>
-              <div style={{ fontSize:22, marginBottom:4 }}>{icon}</div>
-              <div style={{ fontWeight:700, fontSize:13, color:securityMode===m?accentColor:C.text }}>{t}</div>
-              <div style={{ color:C.muted, fontSize:11, marginTop:2 }}>{d}</div>
+            [
+              empreinte.stats
+                .nbMinutiae ?? "-",
+              "Minuties",
+            ],
+            [
+              empreinte.stats
+                .nbBifurcations ?? "-",
+              "Bifurcations",
+            ],
+            [
+              empreinte.stats
+                .nbTerminations ?? "-",
+              "Terminaisons",
+            ],
+          ].map(([value, label]) => (
+            <div
+              key={label}
+              style={{
+                background: C.bg,
+                borderRadius: 8,
+                padding: "10px",
+                border: `1px solid ${C.border}`,
+                textAlign: "center",
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 800,
+                  fontSize: 16,
+                  color: C.accent,
+                }}
+              >
+                {value}
+              </div>
+
+              <div
+                style={{
+                  fontSize: 10,
+                  color: C.muted,
+                  marginTop: 1,
+                }}
+              >
+                {label}
+              </div>
             </div>
           ))}
         </div>
 
-        {/* Upload rétine */}
-        <label style={base.label}>Image rétinienne *</label>
-        <DropZone file={fileRetine} setFile={setFileRetine} drag={dragR} setDrag={setDragR}
-          fileRef={fileRefR} label="Déposer l'image de rétine" icon="👁️" accept=".png,.jpg,.jpeg,.bmp" />
-
-        {/* Upload empreinte si mode double */}
-        {securityMode === "double" && (
-          <>
-            <label style={base.label}>Image empreinte digitale *</label>
-            <DropZone file={fileEmpreinte} setFile={setFileEmpreinte} drag={dragE} setDrag={setDragE}
-              fileRef={fileRefE} label="Déposer l'image d'empreinte" icon="🫆" accept=".png,.jpg,.jpeg,.bmp" />
-          </>
-        )}
-
-        {showId && <>
-          <label style={base.label}>Identifiant</label>
-          <input style={base.input} type="text" placeholder="Ex : Jean Martin" value={pid} onChange={e=>setPid(e.target.value)} />
-        </>}
-
-        {securityMode==="double" && (
-          <div style={{ padding:"10px 12px", background:`${accentColor}10`, borderRadius:8, border:`1px solid ${accentColor}30`, fontSize:12, color:accentColor, marginBottom:12 }}>
-            🔒 Mode renforcé : les deux biométries doivent correspondre
-          </div>
-        )}
-        <div style={{ padding:"10px 12px", background:C.bg, borderRadius:8, border:`1px solid ${C.border}`, fontSize:12, color:C.muted }}>
-          🔒 Images non stockées — seuls les vecteurs optimisés sont conservés
-        </div>
+        <FullVectorBlock
+          title="Détails empreinte"
+          data={empreinte.fullVector}
+          color={C.accent}
+          keys={[
+            "nbMinutiae",
+            "nbBifurcations",
+            "nbTerminations",
+            "minutiaeDensity",
+            "meanOrientation",
+            "orientationVariation",
+            "density",
+          ]}
+        />
       </div>
 
-      {/* Right : pipeline + lancer */}
-      <div style={base.card}>
-        <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Pipeline de traitement</div>
-        <div style={{ color:C.sub, fontSize:13, marginBottom:16 }}>Étapes exécutées automatiquement</div>
+      {isDouble && retine && (
+        <>
+          <ImageViewer
+            title="👁️ Visualisation rétine Premium"
+            data={retine}
+            viewMode={retinaViewMode}
+            setViewMode={setRetinaViewMode}
+            color={C.primary}
+            legend="🔴 Rouge = vaisseaux rétiniens détectés"
+          />
 
-        {[
-          { n:"1", icon:"🖼️", t:"Prétraitement", d:"Redimensionnement 512×512, normalisation" },
-          { n:"2", icon:"🩸", t:"Segmentation vaisseaux", d:"Détection des vaisseaux rétiniens par DoG multi-échelle" },
-          { n:"3", icon:"📐", t:"Squelettisation", d:"Amincissement à 1 pixel (Zhang-Suen thinning)" },
-          { n:"4", icon:"🧬", t:"Vecteur complet", d:"OvLen, TI, MedTor, D1, D2 + directions + bifurcations" },
-          { n:"5", icon:"⚡", t:"Vecteur optimisé", d:securityMode==="double"?"Rétine : OvLen/TI/MedTor/D1/D2 · Empreinte : minuties/orientation":"5 features rétine : OvLen, TI, MedTor, D1, D2" },
-        ].map(s=>(
-          <div key={s.n} style={{ display:"flex", gap:12, marginBottom:12, padding:"12px", background:C.bg, borderRadius:9, border:`1px solid ${C.border}` }}>
-            <div style={{ width:26,height:26,borderRadius:"50%",background:accentColor+"18",color:accentColor,fontWeight:800,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>{s.n}</div>
-            <div><div style={{ fontWeight:700,fontSize:13,marginBottom:2 }}>{s.icon} {s.t}</div><div style={{ color:C.sub,fontSize:11,lineHeight:1.5 }}>{s.d}</div></div>
-          </div>
-        ))}
-
-        <div style={{ padding:"12px 14px", background:accentColor+"0E", borderRadius:9, marginBottom:16, fontSize:13 }}>
-          <div style={{ fontWeight:700, color:accentColor, marginBottom:6 }}>Récapitulatif</div>
-          <div style={{ color:C.sub }}>Mode : <strong style={{ color:C.text }}>{securityMode==="double"?"👁️🫆 Rétine + Empreinte":"👁️ Rétine seule"}</strong></div>
-          <div style={{ color:C.sub, marginTop:3 }}>Rétine : <strong style={{ color:fileRetine?C.text:C.muted }}>{fileRetine?.name||"Non sélectionnée"}</strong></div>
-          {securityMode==="double" && <div style={{ color:C.sub, marginTop:3 }}>Empreinte : <strong style={{ color:fileEmpreinte?C.text:C.muted }}>{fileEmpreinte?.name||"Non sélectionnée"}</strong></div>}
-        </div>
-
-        {err && <div style={{ background:C.redBg,color:C.red,border:`1px solid ${C.red}30`,borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13 }}>⚠ {err}</div>}
-
-        <button style={{ ...mkBtn("primary",accentColor), width:"100%", padding:"14px", fontSize:15, opacity:(!canRun||loading)?0.6:1 }}
-          onClick={run} disabled={!canRun||loading}>
-          {loading ? <><span style={{ animation:"spin 1s linear infinite", display:"inline-block" }}>⟳</span>&nbsp;{msg}</> : <>{Ic.scan}&nbsp;Lancer l'analyse</>}
-        </button>
-        {loading && <div style={{ height:5,background:C.border,borderRadius:4,overflow:"hidden",position:"relative",marginTop:10 }}><div style={{ position:"absolute",top:0,left:0,height:"100%",background:accentColor,animation:"progress 3s ease-in-out forwards",borderRadius:4 }}/></div>}
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes progress{from{width:0%}to{width:100%}}`}</style>
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// RESULTS PANEL — Vecteur complet + Vecteur optimisé
-// ═══════════════════════════════════════════════════════════════════════════════
-function ResultsPanel({ result, accentColor=C.primary, onNew, onEnroll, onAuth }) {
-  const [viewMode, setViewMode] = useState("overlay");
-  const [showSkel, setShowSkel] = useState(false);
-
-  if (!result) return (
-    <div style={{ textAlign:"center", padding:"80px 0", color:C.sub }}>
-      <div style={{ fontSize:52, marginBottom:16 }}>🧬</div>
-      <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>Aucune analyse effectuée</div>
-      <div style={{ marginBottom:24 }}>Importez une image rétinienne pour lancer le pipeline.</div>
-      {onNew && <button style={mkBtn("primary",accentColor)} onClick={onNew}>{Ic.scan}&nbsp;Analyser une image</button>}
-    </div>
-  );
-
-  const retine = result.retine;
-  const empreinte = result.empreinte;
-  const isDouble = result.securityMode === "double";
-  const retinaKeys = ["OvLen","TI","MedTor","D1","D2"];
-  const fingerprintKeys = ["nbMinutiae","nbBifurcations","nbTerminations","minutiaeDensity","meanOrientation","orientationVariation"];
-
-  const FullVectorBlock = ({ title, data, keys, color }) => (
-    <div>
-      <div style={{ fontWeight:700, fontSize:13, color, marginBottom:8, textTransform:"uppercase", letterSpacing:"0.05em" }}>{title}</div>
-      <div style={{ background:"#080F1E", borderRadius:10, padding:"14px 16px", fontFamily:"monospace", fontSize:11, lineHeight:1.9 }}>
-        {keys.map(key => (
-          <div key={key}>
-            <span style={{ color:"#94A3B8" }}>{key}: </span>
-            <span style={{ color:"#60A5FA" }}>{typeof data[key] === "number" ? data[key].toFixed(6) : data[key]}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const OptimizedVector = ({ title, vector, keys, color }) => (
-    <div>
-      <div style={{ fontWeight:800, fontSize:16, marginBottom:5 }}>{title}</div>
-      <div style={{ color:C.sub, fontSize:12, marginBottom:18 }}>Signature utilisée pour l'authentification biométrique</div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:12, marginBottom:18 }}>
-        {keys.map((key, index) => (
-          <div key={key} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px" }}>
-            <div style={{ color:C.muted, fontSize:11, fontWeight:700, marginBottom:6 }}>{key}</div>
-            <div style={{ color, fontFamily:"monospace", fontSize:18, fontWeight:800, wordBreak:"break-all" }}>
-              {Number(vector[index]).toFixed(6)}
-            </div>
-          </div>
-        ))}
-      </div>
-      <div style={{ background:"#080F1E", borderRadius:10, padding:"16px", fontFamily:"monospace", fontSize:12, color:"#4ADE80", lineHeight:1.7, wordBreak:"break-word" }}>
-        [{vector.map(value => Number(value).toFixed(4)).join(", ")}]
-      </div>
-    </div>
-  );
-
-  return (
-    <>
-      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:12 }}>
-        <div>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
-            <span style={mkChip(C.success)}>✓ Pipeline complet</span>
-            <span style={mkBadge(C.primary)}>👁️ Rétine</span>
-            {isDouble && <span style={mkBadge(C.accent)}>🫆 Empreinte</span>}
-            {isDouble && <span style={mkBadge(C.warning)}>🔒 Sécurité renforcée</span>}
-            <span style={{ color:C.muted, fontSize:13 }}>{result.UtilisateurId}</span>
-          </div>
-          <h2 style={{ fontSize:18, fontWeight:800 }}>Segmentation · Squelette · Signature biométrique</h2>
-        </div>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          {onNew && <button style={mkBtn("ghost")} onClick={onNew}>{Ic.scan}&nbsp;Nouvelle analyse</button>}
-          {onEnroll && <button style={mkBtn("soft",C.success)} onClick={() => onEnroll(result)}>{Ic.plus}&nbsp;Enrôler</button>}
-          {onAuth && <button style={mkBtn("primary",accentColor)} onClick={() => onAuth(result)}>{Ic.search}&nbsp;Authentifier</button>}
-        </div>
-      </div>
-
-      <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(380px,1fr)", gap:20, alignItems:"stretch" }}>
-        <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
           <div style={base.card}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, gap:10, flexWrap:"wrap" }}>
-              <div style={{ fontWeight:700, fontSize:14 }}>👁️ Visualisation rétine</div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                {[["original","Original"],["overlay","Superposition"],["mask","Masque"],["skel","Squelette"]].map(([value,label]) => (
-                  <button
-                    key={value}
-                    style={{ ...mkBtn((showSkel && value === "skel") || (!showSkel && value === viewMode) ? "primary" : "ghost",accentColor), padding:"4px 9px", fontSize:11 }}
-                    onClick={() => {
-                      if (value === "skel") setShowSkel(true);
-                      else { setShowSkel(false); setViewMode(value); }
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(3,1fr)",
+                gap: 8,
+                marginBottom: 16,
+              }}
+            >
+              {[
+                [
+                  retine.stats.OvLen?.toFixed(
+                    0
+                  ) || "-",
+                  "Longueur totale",
+                ],
+                [
+                  retine.stats.TI?.toFixed(
+                    3
+                  ) || "-",
+                  "Tortuosité",
+                ],
+                [
+                  retine.stats.D1?.toFixed(
+                    2
+                  ) || "-",
+                  "Diamètre moyen",
+                ],
+              ].map(([value, label]) => (
+                <div
+                  key={label}
+                  style={{
+                    background: C.bg,
+                    borderRadius: 8,
+                    padding: "10px",
+                    border: `1px solid ${C.border}`,
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 16,
+                      color: C.primary,
+                    }}
+                  >
+                    {value}
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: C.muted,
+                      marginTop: 1,
                     }}
                   >
                     {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{ background:"#080F1E", borderRadius:10, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", height:300 }}>
-              <img
-                key={showSkel ? "skel" : viewMode}
-                src={showSkel ? retine.skelUrl : viewMode === "mask" ? retine.maskUrl : viewMode === "original" ? retine.originalUrl : retine.overlayUrl}
-                alt="rétine"
-                style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain" }}
-              />
-            </div>
-            <div style={{ marginTop:8, fontSize:11, color:C.muted, textAlign:"center" }}>
-              {showSkel ? "📐 Squelette vasculaire (1px d'épaisseur)" : viewMode === "overlay" ? "🔴 Rouge = vaisseaux" : viewMode === "mask" ? "⬜ Masque binaire" : "🖼️ Original"}
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginTop:12 }}>
-              {[
-                ["OvLen", retine.stats.OvLen?.toFixed(0) || "-", "Longueur totale"],
-                ["TI", retine.stats.TI?.toFixed(3) || "-", "Tortuosité"],
-                ["D1", retine.stats.D1?.toFixed(2) || "-", "Diamètre moyen"],
-              ].map(([key,value,label]) => (
-                <div key={key} style={{ background:C.bg, borderRadius:8, padding:"8px", border:`1px solid ${C.border}`, textAlign:"center" }}>
-                  <div style={{ fontWeight:800, fontSize:16, color:accentColor }}>{value}</div>
-                  <div style={{ fontSize:10, color:C.muted, marginTop:1 }}>{label}</div>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
 
-          <div style={base.card}>
-            <div style={{ fontWeight:700, fontSize:14, marginBottom:8 }}>📊 Détails d'extraction rétine</div>
-            <div style={{ color:C.sub, fontSize:12, marginBottom:12 }}>{Object.keys(retine.fullVector).length} mesures calculées</div>
             <FullVectorBlock
               title="Morphologie vasculaire"
               data={retine.fullVector}
               color={C.primary}
-              keys={["OvLen","TI","MedTor","D1","D2","nbSegments","nbBifurcations","nbTerminations","density"]}
+              keys={[
+                "OvLen",
+                "TI",
+                "MedTor",
+                "D1",
+                "D2",
+                "nbSegments",
+                "nbBifurcations",
+                "nbTerminations",
+                "density",
+              ]}
             />
           </div>
+        </>
+      )}
+    </div>
 
-          {isDouble && empreinte && (
-            <>
-              <div style={base.card}>
-                <div style={{ fontWeight:700, fontSize:14, marginBottom:12 }}>🫆 Visualisation empreinte</div>
-                <div style={{ background:"#080F1E", borderRadius:10, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", height:260 }}>
-                  <img src={empreinte.maskUrl} alt="empreinte" style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain" }} />
-                </div>
-              </div>
-              <div style={base.card}>
-                <FullVectorBlock
-                  title="Détails empreinte"
-                  data={empreinte.fullVector}
-                  color={C.accent}
-                  keys={["nbMinutiae","nbBifurcations","nbTerminations","minutiaeDensity","meanOrientation","orientationVariation","density"]}
-                />
-              </div>
-            </>
-          )}
-        </div>
+    <div
+      style={{
+        ...base.card,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        minHeight: 620,
+      }}
+    >
+      <div>
+        <OptimizedVector
+          title="🫆 Vecteur optimisé empreinte"
+          vector={empreinte.optimizedArray}
+          keys={fingerprintKeys}
+          color={C.accent}
+        />
 
-        <div style={{ ...base.card, display:"flex", flexDirection:"column", justifyContent:"space-between", minHeight:620 }}>
-          <div>
+        {isDouble && retine && (
+          <div
+            style={{
+              borderTop: `1px solid ${C.border}`,
+              marginTop: 26,
+              paddingTop: 26,
+            }}
+          >
             <OptimizedVector
-              title="⚡ Vecteur optimisé rétine"
+              title="👁️ Vecteur optimisé rétine Premium"
               vector={retine.optimizedArray}
               keys={retinaKeys}
-              color={accentColor}
+              color={C.primary}
             />
-
-            {isDouble && empreinte && (
-              <div style={{ borderTop:`1px solid ${C.border}`, marginTop:26, paddingTop:26 }}>
-                <OptimizedVector
-                  title="🫆 Vecteur optimisé empreinte"
-                  vector={empreinte.optimizedArray}
-                  keys={fingerprintKeys}
-                  color={C.accent}
-                />
-              </div>
-            )}
           </div>
-
-          <div style={{ marginTop:28, padding:"14px 16px", background:C.primaryLight, borderRadius:10, color:C.primary, fontSize:12, lineHeight:1.6 }}>
-            🔒 Une seule signature rétinienne optimisée est affichée et utilisée par les fonctions d'enrôlement, de comparaison et d'authentification.
-          </div>
-        </div>
+        )}
       </div>
-    </>
-  );
-}
 
+      <div
+        style={{
+          marginTop: 28,
+          padding: "14px 16px",
+          background: C.primaryLight,
+          borderRadius: 10,
+          color: C.primary,
+          fontSize: 12,
+          lineHeight: 1.6,
+        }}
+      >
+        {isDouble
+          ? "⭐ Mode Premium : la signature de l'empreinte et la signature rétinienne sont toutes les deux générées avec les pipelines de segmentation existants."
+          : "🔒 Mode standard : seule la signature optimisée de l'empreinte est générée et utilisée."}
+      </div>
+    </div>
+  </div>
+</>
+
+);
+}
 // ═══════════════════════════════════════════════════════════════════════════════
 // BASE DE DONNÉES BIOMÉTRIQUE — Enrôlement + Authentification
 // ═══════════════════════════════════════════════════════════════════════════════
