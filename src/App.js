@@ -1599,28 +1599,110 @@ function RegisterPage({ role, onBack, onRegister }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════════════════════════════
-function LoginPage({ onLogin, users, onRegister }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [err, setErr]     = useState("");
-  const [tab, setTab]     = useState("Administrateur");
-  const [view, setView]   = useState("login");
-  const [retineFile, setRetineFile] = useState(null);
-  const [loading, setLoading]       = useState(false);
-  const retineRef = useRef();
-  const IsAdmin = tab === "Administrateur";
+function LoginPage({
+onLogin,
+users,
+onRegister,
+}) {
+const [username, setUsername] = useState("");
+const [password, setPassword] = useState("");
+const [err, setErr] = useState("");
+const [tab, setTab] = useState("Administrateur");
+const [view, setView] = useState("login");
 
-  if (view==="register-Administrateur") return <RegisterPage role="Administrateur" onBack={()=>setView("login")} onRegister={u=>{onRegister(u);setView("login");}} />;
-  if (view==="register-client")  return <RegisterPage role="client"  onBack={()=>setView("login")} onRegister={u=>{onRegister(u);setView("login");}} />;
+const [loginMode, setLoginMode] =
+useState("empreinte");
 
-  const login = async () => {
-    const u = users[username];
-    if (!u || u.password!==password) { setErr("Identifiants incorrects."); return; }
-    if (u.role!==tab) { setErr(`Ce compte est de type "${u.role==="Administrateur"?"Administrateur":"Utilisateur"}". Changez d'onglet.`); return; }
-    if (u.disabled) { setErr("Ce compte a été suspendu par un administrateur."); return; }
-    if (u.pendingValidation) { setErr("Compte en attente de validation par un administrateur."); return; }
+const [empreinteFile, setEmpreinteFile] =
+useState(null);
 
-  
+const [retineFile, setRetineFile] =
+useState(null);
+
+const [loading, setLoading] = useState(false);
+const [loadingMessage, setLoadingMessage] =
+useState("");
+
+const empreinteRef = useRef();
+const retineRef = useRef();
+
+const IsAdmin = tab === "Administrateur";
+
+if (view === "register-Administrateur") {
+return (
+<RegisterPage
+role="Administrateur"
+onBack={() => setView("login")}
+onRegister={account => {
+onRegister(account);
+setView("login");
+}}
+/>
+);
+}
+
+const resetBiometrics = () => {
+setEmpreinteFile(null);
+setRetineFile(null);
+setLoginMode("empreinte");
+};
+
+const changeTab = role => {
+setTab(role);
+setErr("");
+resetBiometrics();
+};
+
+const changeUsername = value => {
+setUsername(value);
+setErr("");
+
+```
+const account = users[value];
+
+if (account?.role === "client") {
+  setLoginMode(
+    account.authMode === "double"
+      ? "double"
+      : "empreinte"
+  );
+}
+```
+
+};
+
+const login = async () => {
+const u = users[username];
+
+```
+if (!u || u.password !== password) {
+  setErr("Identifiants incorrects.");
+  return;
+}
+
+if (u.role !== tab) {
+  setErr(
+    u.role === "Administrateur"
+      ? "Ce compte est un compte Administrateur."
+      : "Ce compte est un compte Utilisateur."
+  );
+  return;
+}
+
+if (u.disabled) {
+  setErr(
+    "Ce compte a été suspendu par un administrateur."
+  );
+  return;
+}
+
+if (u.pendingValidation) {
+  setErr(
+    "Ce compte est encore en attente de validation."
+  );
+  return;
+}
+
 // Vérification biométrique utilisateur
 if (u.role === "client") {
   const requiredMode =
@@ -1631,15 +1713,15 @@ if (u.role === "client") {
   if (loginMode !== requiredMode) {
     setErr(
       requiredMode === "double"
-        ? "Ce compte est Premium : utilisez Empreinte + Rétine."
-        : "Ce compte est Standard : utilisez Empreinte seule."
+        ? "Ce compte est Premium : sélectionnez Empreinte + Rétine."
+        : "Ce compte est Standard : sélectionnez Empreinte seule."
     );
     return;
   }
 
   if (!u.empreinteVector) {
     setErr(
-      "Aucune empreinte n'est enregistrée pour ce compte."
+      "Aucune empreinte n'est enregistrée pour ce compte. Contactez votre administrateur."
     );
     return;
   }
@@ -1728,7 +1810,9 @@ if (u.role === "client") {
     }
   } catch (error) {
     setErr(
-      `Erreur pendant l'authentification : ${error.message}`
+      `Erreur pendant l'authentification : ${
+        error?.message || "Erreur inconnue"
+      }`
     );
     return;
   } finally {
@@ -1737,91 +1821,595 @@ if (u.role === "client") {
   }
 }
 
-  return (
-    <div style={{ minHeight:"100vh", display:"flex", background:`linear-gradient(135deg,${C.sidebar} 0%,#1A1A4A 100%)`, ...F }}>
-      {/* Left */}
-      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:48 }}>
-        <Logo size={90} color={C.primary} />
-        
-        <p style={{ color:C.sidebarText, fontSize:15, maxWidth:340, lineHeight:1.7, textAlign:"center", marginBottom:40 }}>
-          Solution de contrôle d'accès biométrique multimodale par rétine et empreinte digitale
-        </p>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, width:340 }}>
-          {[["👁️","Rétine","Vaisseaux sanguins"],["🫆","Empreinte","Lignes caractéristiques"],["🧬","Vecteur features","16 dimensions"],["🔐","Chiffrement","AES-256-GCM"]].map(([icon,t,d])=>(
-            <div key={t} style={{ background:"rgba(255,255,255,0.06)", borderRadius:10, padding:"14px", border:"1px solid rgba(255,255,255,0.08)" }}>
-              <div style={{ fontSize:22, marginBottom:6 }}>{icon}</div>
-              <div style={{ color:"#fff", fontWeight:700, fontSize:13 }}>{t}</div>
-              <div style={{ color:C.muted, fontSize:11, marginTop:2 }}>{d}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+setErr("");
 
-      {/* Right */}
-      <div style={{ width:460, display:"flex", alignItems:"center", justifyContent:"center", padding:32 }}>
-        <div style={{ background:C.surface, borderRadius:20, padding:"40px 36px", width:"100%", boxShadow:"0 24px 64px rgba(0,0,0,0.3)" }}>
-          <div style={{ display:"flex", background:C.bg, borderRadius:10, padding:4, marginBottom:28, border:`1px solid ${C.border}` }}>
-            {[["Administrateur",Ic.user,"Administrateur"],["client",Ic.user,"Utilisateur"]].map(([role,icon,label])=>(
-              <button key={role} onClick={()=>{setTab(role);setErr("");}} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:8, padding:"10px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:600, fontSize:14, transition:"all 0.15s", background:tab===role?(role==="Administrateur"?C.primary:C.accent):"transparent", color:tab===role?"#fff":C.sub }}>{icon} {label}</button>
-            ))}
+onLogin({
+  username,
+  ...u,
+});
+```
+
+};
+
+const FileZone = ({
+file,
+setFile,
+inputRef,
+icon,
+label,
+color,
+}) => (
+<>
+<input
+ref={inputRef}
+type="file"
+accept=".png,.jpg,.jpeg,.bmp"
+style={{ display: "none" }}
+onChange={event =>
+setFile(
+event.target.files?.[0] || null
+)
+}
+/>
+
+```
+  <div
+    onClick={() =>
+      inputRef.current?.click()
+    }
+    style={{
+      border: `2px dashed ${
+        file
+          ? C.success
+          : C.border
+      }`,
+      borderRadius: 10,
+      padding: 16,
+      textAlign: "center",
+      cursor: "pointer",
+      background: file
+        ? C.successBg
+        : C.bg,
+      marginBottom: 16,
+      transition: "all 0.15s",
+    }}
+  >
+    {file ? (
+      <>
+        <div style={{ fontSize: 20 }}>
+          ✅
+        </div>
+
+        <div
+          style={{
+            color: C.success,
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          {file.name}
+        </div>
+      </>
+    ) : (
+      <>
+        <div style={{ fontSize: 24 }}>
+          {icon}
+        </div>
+
+        <div
+          style={{
+            color,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          {label}
+        </div>
+
+        <div
+          style={{
+            color: C.muted,
+            fontSize: 11,
+          }}
+        >
+          PNG, JPG, JPEG ou BMP
+        </div>
+      </>
+    )}
+  </div>
+</>
+```
+
+);
+
+return (
+<div
+style={{
+minHeight: "100vh",
+display: "flex",
+background: `linear-gradient(135deg,${C.sidebar} 0%,#1A1A4A 100%)`,
+...F,
+}}
+>
+<div
+style={{
+flex: 1,
+display: "flex",
+flexDirection: "column",
+alignItems: "center",
+justifyContent: "center",
+padding: 48,
+}}
+> <Logo size={90} color={C.primary} />
+
+
+    <p
+      style={{
+        color: C.sidebarText,
+        fontSize: 15,
+        maxWidth: 340,
+        lineHeight: 1.7,
+        textAlign: "center",
+        marginBottom: 40,
+      }}
+    >
+      Solution de contrôle d'accès biométrique
+      par empreinte digitale avec un mode Premium
+      associant empreinte et rétine.
+    </p>
+
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 12,
+        width: 340,
+      }}
+    >
+      {[
+        ["🫆", "Empreinte", "Accès standard"],
+        ["👁️", "Rétine", "Renfort Premium"],
+        ["🧬", "Vecteurs", "Signatures optimisées"],
+        ["🔐", "Sécurité", "Double authentification"],
+      ].map(([icon, title, description]) => (
+        <div
+          key={title}
+          style={{
+            background: "rgba(255,255,255,0.06)",
+            borderRadius: 10,
+            padding: 14,
+            border:
+              "1px solid rgba(255,255,255,0.08)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 22,
+              marginBottom: 6,
+            }}
+          >
+            {icon}
           </div>
 
-          <h2 style={{ fontSize:20, fontWeight:800, marginBottom:4 }}>{IsAdmin?"Connexion Administrateur":"Connexion Utilisateur"}</h2>
-          <p style={{ color:C.sub, fontSize:13, marginBottom:24 }}>{IsAdmin?"Accès au système biométrique complet.":"Consultez vos analyses biométriques."}</p>
+          <div
+            style={{
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 13,
+            }}
+          >
+            {title}
+          </div>
 
-          <label style={base.label}>Identifiant</label>
-          <input style={base.input} type="text" placeholder={IsAdmin?"ex : admin":"ex : Utilisateur1"} value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login()} />
-          <label style={base.label}>Mot de passe</label>
-          <input style={base.input} type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login()} />
+          <div
+            style={{
+              color: C.muted,
+              fontSize: 11,
+              marginTop: 2,
+            }}
+          >
+            {description}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
 
-          {!IsAdmin && (
+  <div
+    style={{
+      width: 500,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 32,
+    }}
+  >
+    <div
+      style={{
+        background: C.surface,
+        borderRadius: 20,
+        padding: "36px 34px",
+        width: "100%",
+        boxShadow:
+          "0 24px 64px rgba(0,0,0,0.3)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          background: C.bg,
+          borderRadius: 10,
+          padding: 4,
+          marginBottom: 24,
+          border: `1px solid ${C.border}`,
+        }}
+      >
+        {[
+          [
+            "Administrateur",
+            Ic.user,
+            "Administrateur",
+          ],
+          [
+            "client",
+            Ic.user,
+            "Utilisateur",
+          ],
+        ].map(([role, icon, label]) => (
+          <button
+            key={role}
+            type="button"
+            onClick={() => changeTab(role)}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              padding: 10,
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 14,
+              background:
+                tab === role
+                  ? role === "Administrateur"
+                    ? C.primary
+                    : C.accent
+                  : "transparent",
+              color:
+                tab === role
+                  ? "#fff"
+                  : C.sub,
+            }}
+          >
+            {icon} {label}
+          </button>
+        ))}
+      </div>
+
+      <h2
+        style={{
+          fontSize: 20,
+          fontWeight: 800,
+          marginBottom: 4,
+        }}
+      >
+        {IsAdmin
+          ? "Connexion Administrateur"
+          : "Connexion Utilisateur"}
+      </h2>
+
+      <p
+        style={{
+          color: C.sub,
+          fontSize: 13,
+          marginBottom: 20,
+        }}
+      >
+        {IsAdmin
+          ? "Accès au système biométrique complet."
+          : "Utilisez le mode défini lors de la création de votre compte."}
+      </p>
+
+      {!IsAdmin && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 10,
+            marginBottom: 18,
+          }}
+        >
+          {[
+            {
+              value: "empreinte",
+              icon: "🫆",
+              title: "Empreinte seule",
+              subtitle: "Standard",
+            },
+            {
+              value: "double",
+              icon: "🫆 👁️",
+              title: "Empreinte + Rétine",
+              subtitle: "Premium",
+            },
+          ].map(option => {
+            const active =
+              loginMode === option.value;
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  setLoginMode(option.value);
+                  setErr("");
+
+                  if (
+                    option.value === "empreinte"
+                  ) {
+                    setRetineFile(null);
+                  }
+                }}
+                style={{
+                  border: `2px solid ${
+                    active
+                      ? C.accent
+                      : C.border
+                  }`,
+                  borderRadius: 10,
+                  padding: "13px 8px",
+                  background: active
+                    ? `${C.accent}0E`
+                    : C.bg,
+                  cursor: "pointer",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 21,
+                    marginBottom: 4,
+                  }}
+                >
+                  {option.icon}
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: active
+                      ? C.accent
+                      : C.text,
+                  }}
+                >
+                  {option.title}
+                </div>
+
+                <div
+                  style={{
+                    color: C.muted,
+                    fontSize: 10,
+                    marginTop: 2,
+                  }}
+                >
+                  {option.subtitle}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <label style={base.label}>
+        Identifiant
+      </label>
+
+      <input
+        style={base.input}
+        type="text"
+        placeholder={
+          IsAdmin
+            ? "ex : admin"
+            : "ex : Utilisateur1"
+        }
+        value={username}
+        onChange={event =>
+          changeUsername(
+            event.target.value
+          )
+        }
+        onKeyDown={event =>
+          event.key === "Enter" &&
+          login()
+        }
+      />
+
+      <label style={base.label}>
+        Mot de passe
+      </label>
+
+      <input
+        style={base.input}
+        type="password"
+        placeholder="••••••••"
+        value={password}
+        onChange={event =>
+          setPassword(
+            event.target.value
+          )
+        }
+        onKeyDown={event =>
+          event.key === "Enter" &&
+          login()
+        }
+      />
+
+      {!IsAdmin && (
+        <>
+          <label style={base.label}>
+            Empreinte digitale *
+          </label>
+
+          <FileZone
+            file={empreinteFile}
+            setFile={setEmpreinteFile}
+            inputRef={empreinteRef}
+            icon="🫆"
+            label="Importer votre empreinte"
+            color={C.accent}
+          />
+
+          {loginMode === "double" && (
             <>
-              <label style={base.label}>Authentification rétinienne *</label>
-              <input ref={retineRef} type="file" accept=".png,.jpg,.jpeg,.bmp" style={{ display:"none" }}
-                onChange={e=>setRetineFile(e.target.files[0]||null)} />
-              <div onClick={()=>retineRef.current.click()}
-                style={{ border:`2px dashed ${retineFile?C.success:C.border}`, borderRadius:10, padding:"16px", textAlign:"center", cursor:"pointer", background:retineFile?C.successBg:C.bg, marginBottom:16, transition:"all 0.15s" }}>
-                {retineFile
-                  ? <><div style={{ fontSize:20 }}>✅</div><div style={{ color:C.success, fontSize:13, fontWeight:700 }}>{retineFile.name}</div></>
-                  : <><div style={{ fontSize:24 }}>👁️</div><div style={{ color:C.accent, fontSize:13 }}>Importer votre image rétinienne</div><div style={{ color:C.muted, fontSize:11 }}>PNG, JPG, BMP</div></>
-                }
-              </div>
+              <label style={base.label}>
+                Rétine Premium *
+              </label>
+
+              <FileZone
+                file={retineFile}
+                setFile={setRetineFile}
+                inputRef={retineRef}
+                icon="👁️"
+                label="Importer votre rétine"
+                color={C.primary}
+              />
             </>
           )}
+        </>
+      )}
 
-          <button style={{ ...mkBtn("primary", IsAdmin?C.primary:C.accent), width:"100%", padding:"13px", fontSize:15, marginBottom:12, opacity:loading?0.6:1 }} onClick={login} disabled={loading}>
-            {loading ? <><span style={{ animation:"spin 1s linear infinite", display:"inline-block" }}>⟳</span>&nbsp;Vérification de la rétine...</> : "Se connecter"}
-          </button>
-          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-          {err && <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}30`, borderRadius:8, padding:"10px 14px", marginBottom:12, fontSize:13 }}>⚠ {err}</div>}
+      <button
+        type="button"
+        style={{
+          ...mkBtn(
+            "primary",
+            IsAdmin
+              ? C.primary
+              : C.accent
+          ),
+          width: "100%",
+          padding: 13,
+          fontSize: 15,
+          marginBottom: 12,
+          opacity: loading ? 0.6 : 1,
+        }}
+        onClick={login}
+        disabled={loading}
+      >
+        {loading ? (
+          <>
+            <span
+              style={{
+                animation:
+                  "spin 1s linear infinite",
+                display: "inline-block",
+              }}
+            >
+              ⟳
+            </span>
+            &nbsp;{loadingMessage}
+          </>
+        ) : (
+          "Se connecter"
+        )}
+      </button>
 
-          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14, marginTop:4 }}>
-            {IsAdmin ? (
-              <>
-                <div style={{ color:C.muted, fontSize:12, textAlign:"center", marginBottom:10 }}>Pas encore de compte ?</div>
-                <button style={{ ...mkBtn("soft", C.primary), width:"100%", padding:"11px" }} onClick={()=>setView("register-Administrateur")}>
-                  {Ic.plus}&nbsp;Créer un compte Administrateur
-                </button>
-              </>
-            ) : (
-              <div style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"12px 14px", background:C.bg, borderRadius:10, border:`1px solid ${C.border}`, fontSize:12, color:C.sub, lineHeight:1.5 }}>
-                <span style={{ fontSize:16 }}>🔒</span>
-                <span>Les comptes utilisateurs sont créés par un administrateur. Contactez votre administrateur pour obtenir vos identifiants.</span>
-              </div>
-            )}
-          </div>
+      <style>
+        {`@keyframes spin{to{transform:rotate(360deg)}}`}
+      </style>
 
-          <div style={{ marginTop:14, padding:"12px 14px", background:C.bg, borderRadius:10, border:`1px solid ${C.border}`, fontSize:12 }}>
-            <div style={{ fontWeight:700, color:C.sub, marginBottom:6 }}>{IsAdmin ? "Comptes de démo" : "Pour tester un accès utilisateur"}</div>
-            {IsAdmin
-              ? <><div style={{ color:C.muted }}>👨‍⚕️ <code>admin</code> / <code>admin123</code></div><div style={{ color:C.muted, marginTop:3 }}>👨‍⚕️ <code>Administrateur</code> / <code>abcd</code></div></>
-              : <div style={{ color:C.muted, lineHeight:1.6 }}>Connectez-vous en admin, créez un utilisateur avec son image de rétine, puis revenez ici et importez <strong>la même image</strong> pour obtenir l'accès.</div>
-            }
-          </div>
+      {err && (
+        <div
+          style={{
+            background: C.redBg,
+            color: C.red,
+            border: `1px solid ${C.red}30`,
+            borderRadius: 8,
+            padding: "10px 14px",
+            marginBottom: 12,
+            fontSize: 13,
+          }}
+        >
+          ⚠ {err}
         </div>
+      )}
+
+      <div
+        style={{
+          borderTop: `1px solid ${C.border}`,
+          paddingTop: 14,
+          marginTop: 4,
+        }}
+      >
+        {IsAdmin ? (
+          <>
+            <div
+              style={{
+                color: C.muted,
+                fontSize: 12,
+                textAlign: "center",
+                marginBottom: 10,
+              }}
+            >
+              Pas encore de compte ?
+            </div>
+
+            <button
+              type="button"
+              style={{
+                ...mkBtn(
+                  "soft",
+                  C.primary
+                ),
+                width: "100%",
+                padding: 11,
+              }}
+              onClick={() =>
+                setView(
+                  "register-Administrateur"
+                )
+              }
+            >
+              {Ic.plus}&nbsp;Créer un compte Administrateur
+            </button>
+          </>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "flex-start",
+              padding: "12px 14px",
+              background: C.bg,
+              borderRadius: 10,
+              border: `1px solid ${C.border}`,
+              fontSize: 12,
+              color: C.sub,
+              lineHeight: 1.5,
+            }}
+          >
+            <span style={{ fontSize: 16 }}>
+              🔒
+            </span>
+
+            <span>
+              Les comptes utilisateurs sont créés
+              par un administrateur. Le mode
+              Standard ou Premium est défini lors
+              de la création du compte.
+            </span>
+          </div>
+        )}
       </div>
     </div>
-  );
+  </div>
+</div>
+
+
+);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
