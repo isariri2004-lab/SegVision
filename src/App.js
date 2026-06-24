@@ -3782,7 +3782,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   const [authResult, setAuthResult] = useState(null);
   const [authFileR, setAuthFileR] = useState(null);
   const [authFileE, setAuthFileE] = useState(null);
-  const [authMode, setAuthMode] = useState("retine");
+  const [authMode, setAuthMode] = useState("empreinte");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const fileRefR = useRef(); const fileRefE = useRef();
@@ -3812,80 +3812,124 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 
   // ── Authentification ──────────────────────────────────────────────────────
   const runAuth = async () => {
-    if (!authFileR || database.length === 0) return;
-    if (authMode === "double" && !authFileE) return;
+  if (!authFileE || database.length === 0) return;
+  if (authMode === "double" && !authFileR) return;
 
-    setLoading(true);
-    setMsg("Calcul du vecteur rétine...");
-    setAuthResult(null);
+  setLoading(true);
+  setMsg("Calcul du vecteur empreinte...");
+  setAuthResult(null);
 
-    try {
-      const retineRes = await processBiometric(authFileR, "retine");
-      let empreinteRes = null;
+  try {
+    const empreinteRes = await processBiometric(
+      authFileE,
+      "empreinte"
+    );
 
-      if (authMode === "double") {
-        setMsg("Calcul du vecteur empreinte...");
-        empreinteRes = await processBiometric(authFileE, "empreinte");
-      }
+    let retineRes = null;
 
-      setMsg("Comparaison avec la base...");
+    if (authMode === "double") {
+      setMsg("Calcul du vecteur rétine...");
+      retineRes = await processBiometric(
+        authFileR,
+        "retine"
+      );
+    }
 
-      const results = database.map(entry => {
-        const retinaComparison = compareRetinaVectors(
-          retineRes.optimizedArray,
-          entry.retineVector
+    setMsg("Comparaison avec la base...");
+
+    const results = database.map(entry => {
+      const empreinteComparison =
+        compareFingerprintVectors(
+          empreinteRes.optimizedArray,
+          entry.empreinteVector
         );
 
-        const fingerprintComparison = authMode === "double"
-          ? compareFingerprintVectors(
-              empreinteRes?.optimizedArray,
-              entry.empreinteVector
+      const retineComparison =
+        authMode === "double"
+          ? compareRetinaVectors(
+              retineRes?.optimizedArray,
+              entry.retineVector
             )
           : null;
 
-        const globalMatch = authMode === "double"
-          ? retinaComparison.match && fingerprintComparison?.match
-          : retinaComparison.match;
+      const globalMatch =
+        authMode === "double"
+          ? empreinteComparison.match &&
+            retineComparison?.match
+          : empreinteComparison.match;
 
-        const globalSimilarity = authMode === "double"
-          ? (retinaComparison.similarity + (fingerprintComparison?.similarity || 0)) / 2
-          : retinaComparison.similarity;
+      const globalSimilarity =
+        authMode === "double"
+          ? (
+              empreinteComparison.similarity +
+              (retineComparison?.similarity || 0)
+            ) / 2
+          : empreinteComparison.similarity;
 
-        return {
-          ...entry,
-          retineDist: retinaComparison.distance,
-          empreinteDist: fingerprintComparison?.distance ?? null,
-          retineSimilarity: retinaComparison.similarity,
-          empreinteSimilarity: fingerprintComparison?.similarity ?? null,
-          retineMatch: retinaComparison.match,
-          empreinteMatch: fingerprintComparison?.match ?? false,
-          globalMatch,
-          globalSimilarity,
-          globalScore: 100 - globalSimilarity,
-        };
-      });
+      return {
+        ...entry,
+        empreinteDist:
+          empreinteComparison.distance,
+        retineDist:
+          retineComparison?.distance ?? null,
+        empreinteSimilarity:
+          empreinteComparison.similarity,
+        retineSimilarity:
+          retineComparison?.similarity ?? null,
+        empreinteMatch:
+          empreinteComparison.match,
+        retineMatch:
+          retineComparison?.match ?? false,
+        globalMatch,
+        globalSimilarity,
+        globalScore: 100 - globalSimilarity,
+      };
+    });
 
-      results.sort((a, b) => b.globalSimilarity - a.globalSimilarity);
-      const bestMatch = results.find(result => result.globalMatch);
+    results.sort(
+      (a, b) =>
+        b.globalSimilarity - a.globalSimilarity
+    );
 
-      setAccessPopup(bestMatch
-        ? { status:"autorise", name:bestMatch.name, similarity:bestMatch.globalSimilarity }
-        : { status:"refuse", name:null, similarity:results[0]?.globalSimilarity || 0 }
-      );
+    const bestMatch = results.find(
+      result => result.globalMatch
+    );
 
-      setAuthResult({
-        results,
-        retineVec:retineRes.optimizedArray,
-        empreinteVec:empreinteRes?.optimizedArray || null,
-      });
-    } catch (error) {
-      setAccessPopup({ status:"refuse", name:null, similarity:0 });
-      setAuthResult(null);
-    } finally {
-      setLoading(false);
-      setMsg("");
-    }
-  };
+    setAccessPopup(
+      bestMatch
+        ? {
+            status: "autorise",
+            name: bestMatch.name,
+            similarity:
+              bestMatch.globalSimilarity,
+          }
+        : {
+            status: "refuse",
+            name: null,
+            similarity:
+              results[0]?.globalSimilarity || 0,
+          }
+    );
+
+    setAuthResult({
+      results,
+      empreinteVec:
+        empreinteRes.optimizedArray,
+      retineVec:
+        retineRes?.optimizedArray || null,
+    });
+  } catch (error) {
+    setAccessPopup({
+      status: "refuse",
+      name: null,
+      similarity: 0,
+    });
+    setAuthResult(null);
+  } finally {
+    setLoading(false);
+    setMsg("");
+  }
+};
 
   return (
     <div>
@@ -4055,84 +4099,431 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
       )}
 
       {/* AUTHENTIFICATION */}
-      {tab==="auth" && (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:24 }}>
-          <div style={base.card}>
-            <div style={{ fontWeight:700, fontSize:15, marginBottom:16 }}>Authentification biométrique</div>
+    {tab==="auth" && (
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 24,
+    }}
+  >
+    <div style={base.card}>
+      <div
+        style={{
+          fontWeight: 700,
+          fontSize: 15,
+          marginBottom: 16,
+        }}
+      >
+        Authentification biométrique
+      </div>
 
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-              {[["retine","👁️ Rétine seule"],["double","👁️🫆 Rétine + Empreinte"]].map(([m,l])=>(
-                <div key={m} onClick={()=>setAuthMode(m)} style={{ border:`2px solid ${authMode===m?accentColor:C.border}`, borderRadius:9, padding:"12px", cursor:"pointer", background:authMode===m?accentColor+"0E":C.bg, textAlign:"center" }}>
-                  <div style={{ fontWeight:700, fontSize:13, color:authMode===m?accentColor:C.text }}>{l}</div>
-                </div>
-              ))}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 10,
+          marginBottom: 16,
+        }}
+      >
+        {[
+          ["empreinte", "🫆 Empreinte seule"],
+          ["double", "🫆👁️ Empreinte + Rétine"],
+        ].map(([mode, label]) => (
+          <div
+            key={mode}
+            onClick={() => setAuthMode(mode)}
+            style={{
+              border: `2px solid ${
+                authMode === mode
+                  ? accentColor
+                  : C.border
+              }`,
+              borderRadius: 9,
+              padding: "12px",
+              cursor: "pointer",
+              background:
+                authMode === mode
+                  ? accentColor + "0E"
+                  : C.bg,
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: 13,
+                color:
+                  authMode === mode
+                    ? accentColor
+                    : C.text,
+              }}
+            >
+              {label}
             </div>
+          </div>
+        ))}
+      </div>
 
-            <label style={base.label}>Image rétinienne *</label>
-            <input ref={fileRefAR} type="file" accept=".png,.jpg,.jpeg,.bmp" style={{ display:"none" }}
-              onChange={e=>setAuthFileR(e.target.files[0]||null)} />
-            <div onClick={()=>fileRefAR.current.click()} style={{ border:`2px dashed ${authFileR?C.success:C.border}`, borderRadius:10, padding:"18px", textAlign:"center", cursor:"pointer", background:authFileR?C.successBg:C.bg, marginBottom:12 }}>
-              {authFileR ? <><div style={{ fontSize:18 }}>✅</div><div style={{ color:C.success, fontSize:13 }}>{authFileR.name}</div></> : <><div style={{ fontSize:24 }}>👁️</div><div style={{ color:accentColor, fontSize:13 }}>Importer la rétine</div></>}
+      <label style={base.label}>
+        Image empreinte *
+      </label>
+
+      <input
+        ref={fileRefAE}
+        type="file"
+        accept=".png,.jpg,.jpeg,.bmp"
+        style={{ display: "none" }}
+        onChange={e =>
+          setAuthFileE(e.target.files[0] || null)
+        }
+      />
+
+      <div
+        onClick={() => fileRefAE.current.click()}
+        style={{
+          border: `2px dashed ${
+            authFileE ? C.success : C.border
+          }`,
+          borderRadius: 10,
+          padding: "18px",
+          textAlign: "center",
+          cursor: "pointer",
+          background: authFileE
+            ? C.successBg
+            : C.bg,
+          marginBottom: 12,
+        }}
+      >
+        {authFileE ? (
+          <>
+            <div style={{ fontSize: 18 }}>✅</div>
+            <div
+              style={{
+                color: C.success,
+                fontSize: 13,
+              }}
+            >
+              {authFileE.name}
             </div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 24 }}>🫆</div>
+            <div
+              style={{
+                color: C.accent,
+                fontSize: 13,
+              }}
+            >
+              Importer l'empreinte
+            </div>
+          </>
+        )}
+      </div>
 
-            {authMode==="double" && (
+      {authMode === "double" && (
+        <>
+          <label style={base.label}>
+            Image rétinienne *
+          </label>
+
+          <input
+            ref={fileRefAR}
+            type="file"
+            accept=".png,.jpg,.jpeg,.bmp"
+            style={{ display: "none" }}
+            onChange={e =>
+              setAuthFileR(
+                e.target.files[0] || null
+              )
+            }
+          />
+
+          <div
+            onClick={() => fileRefAR.current.click()}
+            style={{
+              border: `2px dashed ${
+                authFileR
+                  ? C.success
+                  : C.border
+              }`,
+              borderRadius: 10,
+              padding: "18px",
+              textAlign: "center",
+              cursor: "pointer",
+              background: authFileR
+                ? C.successBg
+                : C.bg,
+              marginBottom: 12,
+            }}
+          >
+            {authFileR ? (
               <>
-                <label style={base.label}>Image empreinte *</label>
-                <input ref={fileRefAE} type="file" accept=".png,.jpg,.jpeg,.bmp" style={{ display:"none" }}
-                  onChange={e=>setAuthFileE(e.target.files[0]||null)} />
-                <div onClick={()=>fileRefAE.current.click()} style={{ border:`2px dashed ${authFileE?C.success:C.border}`, borderRadius:10, padding:"18px", textAlign:"center", cursor:"pointer", background:authFileE?C.successBg:C.bg, marginBottom:12 }}>
-                  {authFileE ? <><div style={{ fontSize:18 }}>✅</div><div style={{ color:C.success, fontSize:13 }}>{authFileE.name}</div></> : <><div style={{ fontSize:24 }}>🫆</div><div style={{ color:C.accent, fontSize:13 }}>Importer l'empreinte</div></>}
+                <div style={{ fontSize: 18 }}>
+                  ✅
+                </div>
+                <div
+                  style={{
+                    color: C.success,
+                    fontSize: 13,
+                  }}
+                >
+                  {authFileR.name}
                 </div>
               </>
-            )}
-
-            <div style={{ padding:"10px 12px", background:C.bg, borderRadius:8, border:`1px solid ${C.border}`, fontSize:12, color:C.muted, marginBottom:16 }}>
-              Comparaison multi-critères : longueur vasculaire, tortuosité et diamètres. La même image produit 100 % de similarité.
-            </div>
-
-            <button style={{ ...mkBtn("primary",accentColor), width:"100%", padding:"13px", opacity:(!authFileR || (authMode==="double"&&!authFileE) || loading)?0.5:1 }}
-              disabled={!authFileR || (authMode==="double"&&!authFileE) || loading} onClick={runAuth}>
-              {loading?<><span style={{ animation:"spin 1s linear infinite", display:"inline-block" }}>⟳</span>&nbsp;{msg}</>:<>{Ic.search}&nbsp;Lancer l'authentification</>}
-            </button>
-          </div>
-
-          {/* Résultats authentification */}
-          <div style={base.card}>
-            <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Résultats</div>
-            {!authResult ? (
-              <div style={{ color:C.muted, fontSize:13, textAlign:"center", padding:"40px 0" }}>
-                <div style={{ fontSize:40, marginBottom:12 }}>🔍</div>
-                Les résultats apparaîtront ici après l'authentification.
-              </div>
             ) : (
               <>
-                {authResult.results.map((r,i)=>{
-                  const retinePct = r.retineSimilarity;
-                  return (
-                    <div key={r.id} style={{ border:`2px solid ${r.globalMatch?C.success:i===0?C.warning:C.border}`, borderRadius:11, padding:"14px", marginBottom:12, background:r.globalMatch?C.successBg:C.surface }}>
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-                        <div style={{ fontWeight:700, fontSize:15 }}>{r.name}</div>
-                        <span style={mkChip(r.globalMatch?C.success:C.red)}>{r.globalMatch?"✓ Identifié":"✗ Non identifié"}</span>
-                      </div>
-                      <div style={{ fontSize:12, color:C.sub, marginBottom:8 }}>
-                        👁️ Similarité rétine : <strong style={{ color:r.retineMatch?C.success:C.red }}>{r.retineSimilarity.toFixed(1)}%</strong>
-                        {r.empreinteSimilarity !== null && <> · 🫆 Similarité empreinte : <strong style={{ color:r.empreinteMatch?C.success:C.red }}>{r.empreinteSimilarity.toFixed(1)}%</strong></>}
-                      </div>
-                      <div style={{ height:6, background:C.border, borderRadius:4, overflow:"hidden", position:"relative" }}>
-                        <div style={{ position:"absolute", top:0, left:0, height:"100%", width:`${retinePct}%`, background:r.retineMatch?C.success:C.red, borderRadius:4 }}/>
-                      </div>
-                      <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>Score similarité : {retinePct.toFixed(1)}%</div>
-                    </div>
-                  );
-                })}
+                <div style={{ fontSize: 24 }}>
+                  👁️
+                </div>
+                <div
+                  style={{
+                    color: accentColor,
+                    fontSize: 13,
+                  }}
+                >
+                  Importer la rétine
+                </div>
               </>
             )}
           </div>
+        </>
+      )}
+
+      <div
+        style={{
+          padding: "10px 12px",
+          background: C.bg,
+          borderRadius: 8,
+          border: `1px solid ${C.border}`,
+          fontSize: 12,
+          color: C.muted,
+          marginBottom: 16,
+        }}
+      >
+        {authMode === "double"
+          ? "Comparaison Premium : l'empreinte et la rétine doivent toutes les deux correspondre."
+          : "Comparaison Standard : authentification par empreinte seule."}
+      </div>
+
+      <button
+        style={{
+          ...mkBtn("primary", accentColor),
+          width: "100%",
+          padding: "13px",
+          opacity:
+            !authFileE ||
+            (authMode === "double" &&
+              !authFileR) ||
+            loading
+              ? 0.5
+              : 1,
+        }}
+        disabled={
+          !authFileE ||
+          (authMode === "double" &&
+            !authFileR) ||
+          loading
+        }
+        onClick={runAuth}
+      >
+        {loading ? (
+          <>
+            <span
+              style={{
+                animation:
+                  "spin 1s linear infinite",
+                display: "inline-block",
+              }}
+            >
+              ⟳
+            </span>
+            &nbsp;{msg}
+          </>
+        ) : (
+          <>
+            {Ic.search}
+            &nbsp;Lancer l'authentification
+          </>
+        )}
+      </button>
+    </div>
+
+    <div style={base.card}>
+      <div
+        style={{
+          fontWeight: 700,
+          fontSize: 15,
+          marginBottom: 12,
+        }}
+      >
+        Résultats
+      </div>
+
+      {!authResult ? (
+        <div
+          style={{
+            color: C.muted,
+            fontSize: 13,
+            textAlign: "center",
+            padding: "40px 0",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 40,
+              marginBottom: 12,
+            }}
+          >
+            🔍
+          </div>
+          Les résultats apparaîtront ici après
+          l'authentification.
         </div>
+      ) : (
+        <>
+          {authResult.results.map((result, index) => {
+            const scorePct =
+              result.globalSimilarity;
+
+            return (
+              <div
+                key={result.id}
+                style={{
+                  border: `2px solid ${
+                    result.globalMatch
+                      ? C.success
+                      : index === 0
+                      ? C.warning
+                      : C.border
+                  }`,
+                  borderRadius: 11,
+                  padding: "14px",
+                  marginBottom: 12,
+                  background: result.globalMatch
+                    ? C.successBg
+                    : C.surface,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent:
+                      "space-between",
+                    marginBottom: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 15,
+                    }}
+                  >
+                    {result.name}
+                  </div>
+
+                  <span
+                    style={mkChip(
+                      result.globalMatch
+                        ? C.success
+                        : C.red
+                    )}
+                  >
+                    {result.globalMatch
+                      ? "✓ Identifié"
+                      : "✗ Non identifié"}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: C.sub,
+                    marginBottom: 8,
+                  }}
+                >
+                  🫆 Similarité empreinte :{" "}
+                  <strong
+                    style={{
+                      color:
+                        result.empreinteMatch
+                          ? C.success
+                          : C.red,
+                    }}
+                  >
+                    {result.empreinteSimilarity.toFixed(
+                      1
+                    )}
+                    %
+                  </strong>
+
+                  {result.retineSimilarity !==
+                    null && (
+                    <>
+                      {" · "}👁️ Similarité
+                      rétine :{" "}
+                      <strong
+                        style={{
+                          color:
+                            result.retineMatch
+                              ? C.success
+                              : C.red,
+                        }}
+                      >
+                        {result.retineSimilarity.toFixed(
+                          1
+                        )}
+                        %
+                      </strong>
+                    </>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    height: 6,
+                    background: C.border,
+                    borderRadius: 4,
+                    overflow: "hidden",
+                    position: "relative",
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      height: "100%",
+                      width: `${scorePct}%`,
+                      background:
+                        result.globalMatch
+                          ? C.success
+                          : C.red,
+                      borderRadius: 4,
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: C.muted,
+                    marginTop: 4,
+                  }}
+                >
+                  Score global :{" "}
+                  {scorePct.toFixed(1)}%
+                </div>
+              </div>
+            );
+          })}
+        </>
       )}
     </div>
-  );
-}
+  </div>
+)}
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
