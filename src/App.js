@@ -1774,7 +1774,6 @@ if (onProgress) {
 onProgress(angle, flipH);
 }
 
-
   const transformedFile =
     await rotateRetinaForLogin(
       file,
@@ -1817,10 +1816,6 @@ onProgress(angle, flipH);
     best = candidate;
   }
 
-  /*
-   * Si la correspondance est exacte,
-   * on peut quitter directement la fonction.
-   */
   if (comparison.exact) {
     return candidate;
   }
@@ -1832,7 +1827,7 @@ onProgress(angle, flipH);
 if (!best) {
 throw new Error(
 "Aucune orientation de la rétine n'a pu être analysée."
-);LoginPage
+);
 }
 
 return best;
