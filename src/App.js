@@ -1670,7 +1670,6 @@ image.onload = () => {
       side,
       side
     );
-
     context.imageSmoothingEnabled =
       true;
 
