@@ -6098,6 +6098,209 @@ function RetinaComparisonPanel({
   const [error, setError] = useState("");
   const refA = useRef();
   const refB = useRef();
+  const ROTATION_ANGLES = [
+0,
+30,
+60,
+90,
+120,
+150,
+180,
+210,
+240,
+270,
+300,
+330,
+];
+
+const rotateRetinaFile = (file, angle) =>
+new Promise((resolve, reject) => {
+const image = new Image();
+const imageUrl = URL.createObjectURL(file);
+
+
+image.onload = () => {
+  try {
+    const radians =
+      angle * Math.PI / 180;
+
+    /*
+     * Padding noir de 15 % autour
+     * de l'image avant la rotation.
+     */
+    const padding = Math.ceil(
+      Math.max(
+        image.width,
+        image.height
+      ) * 0.15
+    );
+
+    const paddedWidth =
+      image.width + padding * 2;
+
+    const paddedHeight =
+      image.height + padding * 2;
+
+    /*
+     * Canvas carré suffisamment grand
+     * pour qu'aucune rotation ne coupe
+     * les coins de l'image.
+     */
+    const canvasSize = Math.ceil(
+      Math.sqrt(
+        paddedWidth ** 2 +
+        paddedHeight ** 2
+      )
+    );
+
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+
+    const context =
+      canvas.getContext("2d");
+
+    if (!context) {
+      URL.revokeObjectURL(imageUrl);
+
+      reject(
+        new Error(
+          "Impossible de créer le canvas."
+        )
+      );
+      return;
+    }
+
+    context.fillStyle = "#000000";
+    context.fillRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+
+    context.translate(
+      canvas.width / 2,
+      canvas.height / 2
+    );
+
+    context.rotate(radians);
+
+    context.drawImage(
+      image,
+      -image.width / 2,
+      -image.height / 2
+    );
+
+    canvas.toBlob(
+      blob => {
+        URL.revokeObjectURL(imageUrl);
+
+        if (!blob) {
+          reject(
+            new Error(
+              "Impossible de générer l'image tournée."
+            )
+          );
+          return;
+        }
+
+        resolve(
+          new File(
+            [blob],
+            `rotation_${angle}_${file.name}`,
+            {
+              type: "image/png",
+            }
+          )
+        );
+      },
+      "image/png"
+    );
+  } catch (rotationError) {
+    URL.revokeObjectURL(imageUrl);
+    reject(rotationError);
+  }
+};
+
+image.onerror = () => {
+  URL.revokeObjectURL(imageUrl);
+
+  reject(
+    new Error(
+      "Impossible de lire l'image."
+    )
+  );
+};
+
+image.src = imageUrl;
+
+
+});
+
+const processRetinaRotations =
+async file => {
+const variants = [];
+
+for (const angle of ROTATION_ANGLES) {
+  const rotatedFile =
+    await rotateRetinaFile(
+      file,
+      angle
+    );
+
+  const biometric =
+    await processBiometric(
+      rotatedFile,
+      "retine"
+    );
+
+  variants.push({
+    angle,
+    biometric,
+  });
+}
+
+return variants;
+
+
+};
+
+const identifyRetinaVariants =
+variants => {
+const identifications =
+variants.map(variant => ({
+...identifyRetina(
+variant.biometric.optimizedArray
+),
+angle: variant.angle,
+}));
+
+```
+identifications.sort((a, b) => {
+  if (a.recognized !== b.recognized) {
+    return Number(b.recognized) -
+      Number(a.recognized);
+  }
+
+  return b.similarity - a.similarity;
+});
+
+return identifications[0] || {
+  recognized: false,
+  name: null,
+  similarity: 0,
+  angle: 0,
+};
+```
+
+};
+
 const identifyRetina = vector => {
 const candidates = database
 .filter(user =>
@@ -6145,47 +6348,112 @@ best.comparison.similarity,
 };
 };
 
-  const run = async () => {
-    if (!fileA || !fileB) return;
-    setLoading(true);
-    setError("");
-    setResult(null);
-    try {
-      const [retinaA, retinaB] = await Promise.all([
-        processBiometric(fileA, "retine"),
-        processBiometric(fileB, "retine"),
-      ]);
-      const comparison =
-compareRetinaVectors(
-retinaA.optimizedArray,
-retinaB.optimizedArray
+ const run = async () => {
+if (!fileA || !fileB) return;
+
+setLoading(true);
+setError("");
+setResult(null);
+
+try {
+/*
+* Les deux images sont analysées
+* tous les 30 degrés.
+*/
+const variantsA =
+await processRetinaRotations(
+fileA
 );
 
+
+const variantsB =
+  await processRetinaRotations(
+    fileB
+  );
+
+let bestPair = null;
+
+/*
+ * On compare toutes les orientations
+ * et on conserve la meilleure.
+ */
+for (const variantA of variantsA) {
+  for (const variantB of variantsB) {
+    const comparison =
+      compareRetinaVectors(
+        variantA.biometric
+          .optimizedArray,
+        variantB.biometric
+          .optimizedArray
+      );
+
+    if (
+      !bestPair ||
+      comparison.similarity >
+        bestPair.comparison.similarity
+    ) {
+      bestPair = {
+        variantA,
+        variantB,
+        comparison,
+      };
+    }
+  }
+}
+
+if (!bestPair) {
+  throw new Error(
+    "Aucune comparaison n'a pu être effectuée."
+  );
+}
+
+/*
+ * Recherche du propriétaire de chaque
+ * rétine dans la base biométrique.
+ */
 const identityA =
-identifyRetina(
-retinaA.optimizedArray
-);
+  identifyRetinaVariants(
+    variantsA
+  );
 
 const identityB =
-identifyRetina(
-retinaB.optimizedArray
-);
+  identifyRetinaVariants(
+    variantsB
+  );
 
 setResult({
-retinaA,
-retinaB,
-comparison,
-identityA,
-identityB,
+  retinaA:
+    bestPair.variantA.biometric,
+
+  retinaB:
+    bestPair.variantB.biometric,
+
+  comparison:
+    bestPair.comparison,
+
+  identityA,
+  identityB,
+
+  rotationA:
+    bestPair.variantA.angle,
+
+  rotationB:
+    bestPair.variantB.angle,
 });
 
-    } catch (exception) {
-      setError(`Comparaison impossible : ${exception.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
 
+} catch (exception) {
+setError(
+`Comparaison impossible : ${
+        exception?.message ||
+        "Erreur inconnue"
+      }`
+);
+} finally {
+setLoading(false);
+}
+};
+}
   const Drop = ({ file, setFile, inputRef, label }) => (
     <>
       <input ref={inputRef} type="file" accept=".png,.jpg,.jpeg,.bmp" style={{ display:"none" }} onChange={event => setFile(event.target.files[0] || null)} />
