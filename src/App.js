@@ -6115,16 +6115,10 @@ function RetinaComparisonPanel({
 
 const rotateRetinaFile = (file, angle) =>
 new Promise((resolve, reject) => {
-/*
-* À 0°, on garde exactement l'image originale.
-* Cela permet aussi de retrouver les vecteurs
-* déjà enregistrés dans la base.
-*/
 if (angle === 0) {
 resolve(file);
 return;
 }
-
 const image = new Image();
 const imageUrl =
   URL.createObjectURL(file);
@@ -6132,8 +6126,8 @@ const imageUrl =
 image.onload = () => {
   try {
     /*
-     * On travaille sur un carré centré
-     * sans agrandir le canvas.
+     * On récupère le plus grand carré
+     * centré dans l'image.
      */
     const side = Math.min(
       image.width,
@@ -6146,6 +6140,11 @@ image.onload = () => {
     const sourceY =
       (image.height - side) / 2;
 
+    /*
+     * Le canvas garde toujours la même
+     * dimension que le carré original.
+     * La rétine n'est donc pas réduite.
+     */
     const canvas =
       document.createElement("canvas");
 
@@ -6157,12 +6156,11 @@ image.onload = () => {
 
     if (!context) {
       throw new Error(
-        "Impossible de créer le canvas."
+        "Canvas 2D indisponible."
       );
     }
 
     context.fillStyle = "#000000";
-
     context.fillRect(
       0,
       0,
@@ -6170,11 +6168,8 @@ image.onload = () => {
       side
     );
 
-    context.imageSmoothingEnabled =
-      true;
-
-    context.imageSmoothingQuality =
-      "high";
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
 
     context.translate(
       side / 2,
@@ -6185,10 +6180,6 @@ image.onload = () => {
       angle * Math.PI / 180
     );
 
-    /*
-     * L'image garde exactement la même
-     * échelle, même après la rotation.
-     */
     context.drawImage(
       image,
       sourceX,
@@ -6238,9 +6229,7 @@ image.onload = () => {
 };
 
 image.onerror = () => {
-  URL.revokeObjectURL(
-    imageUrl
-  );
+  URL.revokeObjectURL(imageUrl);
 
   reject(
     new Error(
@@ -6251,8 +6240,8 @@ image.onerror = () => {
 
 image.src = imageUrl;
 
-
 });
+
 
 
 const processRetinaRotations =
