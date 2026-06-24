@@ -1750,90 +1750,30 @@ image.src = imageUrl;
 
 });
 
-const compareRetinaLoginRotations =
-async (
+const compareRetinaLoginRotations = async (
 file,
 referenceVector,
 onProgress
 ) => {
 let best = null;
-let exactFound = false;
 
 for (const flipH of [false, true]) {
-for (
-const angle of LOGIN_RETINA_ANGLES
-) {
+for (const angle of LOGIN_RETINA_ANGLES) {
 if (onProgress) {
-onProgress(
-angle,
-flipH
-);
-}
-const transformedFile =
-  await rotateRetinaForLogin(
-    file,
-    angle,
-    flipH
-  );
-
-const biometric =
-  await processBiometric(
-    transformedFile,
-    "retine"
-  );
-
-const comparison =
-  compareRetinaVectors(
-    biometric.optimizedArray,
-    referenceVector
-  );
-
-const candidate = {
-  angle,
-  flipH,
-  biometric,
-  comparison,
-};
-
-if (
-  !best ||
-  (
-    comparison.match &&
-    !best.comparison.match
-  ) ||
-  (
-    comparison.match ===
-      best.comparison.match &&
-    comparison.similarity >
-      best.comparison.similarity
-  )
-) {
-  best = candidate;
-}
-
-if (comparison.exact) {
-  exactFound = true;
-  break;
+onProgress(angle, flipH);
 }
 
 
-}
-
-if (exactFound) {
-break;
-}
-}
-
-
-  const rotatedFile =
+  const transformedFile =
     await rotateRetinaForLogin(
       file,
-      angle
+      angle,
+      flipH
     );
 
   const biometric =
     await processBiometric(
-      rotatedFile,
+      transformedFile,
       "retine"
     );
 
@@ -1845,15 +1785,11 @@ break;
 
   const candidate = {
     angle,
+    flipH,
     biometric,
     comparison,
   };
 
-  /*
-   * Une correspondance valide passe
-   * toujours avant une non-correspondance.
-   * Sinon, on garde la meilleure similarité.
-   */
   if (
     !best ||
     (
@@ -1871,23 +1807,24 @@ break;
   }
 
   /*
-   * Une correspondance exacte suffit :
-   * inutile de tester les autres angles.
+   * Si la correspondance est exacte,
+   * on peut quitter directement la fonction.
    */
   if (comparison.exact) {
-    break;
+    return candidate;
   }
 }
 
+
+}
+
 if (!best) {
-  throw new Error(
-    "Aucune orientation n'a pu être analysée."
-  );
+throw new Error(
+"Aucune orientation de la rétine n'a pu être analysée."
+);
 }
 
 return best;
-
-
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
