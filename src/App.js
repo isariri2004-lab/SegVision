@@ -2313,71 +2313,74 @@ if (u.role === "client") {
         u.empreinteVector
       );
 
-    let retineComparison = null;
+   let retineComparison = null;
 
-    if (requiredMode === "double") {
-      setLoadingMessage(
-        "Vérification de la rétine Premium..."
-      );
+if (requiredMode === "double") {
+setLoadingMessage(
+"Vérification de la rétine Premium..."
+);
 
-     const retinaRotationResult =
+const retinaRotationResult =
 await compareRetinaLoginRotations(
 retineFile,
 u.retineVector,
-angle => {
+(angle, flipH) => {
 setLoadingMessage(
-`Vérification de la rétine : rotation ${angle}°...`
+`Vérification de la rétine : ${angle}°${
+            flipH
+              ? " + miroir horizontal"
+              : ""
+          }...`
 );
 }
 );
 
 retineComparison =
 retinaRotationResult.comparison;
+}
 
+const globalMatch =
+empreinteComparison.match &&
+(
+requiredMode !== "double" ||
+retineComparison?.match
+);
 
-    const globalMatch =
-      empreinteComparison.match &&
-      (
-        requiredMode !== "double" ||
-        retineComparison?.match
-      );
+setComparisonReport({
+match: globalMatch,
 
-    setComparisonReport({
-      match: globalMatch,
+empreinte: {
+match:
+empreinteComparison.match,
+similarity:
+empreinteComparison.similarity,
+},
 
-      empreinte: {
-        match:
-          empreinteComparison.match,
-        similarity:
-          empreinteComparison.similarity,
-      },
+retine: retineComparison
+? {
+match:
+retineComparison.match,
+similarity:
+retineComparison.similarity,
+}
+: null,
+});
 
-      retine: retineComparison
-        ? {
-            match:
-              retineComparison.match,
-            similarity:
-              retineComparison.similarity,
-          }
-        : null,
-    });
+await new Promise(resolve =>
+setTimeout(resolve, 1400)
+);
 
-    // Laisse le verdict visible avant la connexion.
-    await new Promise(resolve =>
-      setTimeout(resolve, 1400)
-    );
+if (!globalMatch) {
+setErr(
+requiredMode === "double"
+? "L'empreinte et la rétine doivent toutes les deux correspondre."
+: "L'empreinte ne correspond pas à celle enregistrée."
+);
 
-    if (!globalMatch) {
-      setErr(
-        requiredMode === "double"
-          ? "L'empreinte et la rétine doivent toutes les deux correspondre."
-          : "L'empreinte ne correspond pas à celle enregistrée."
-      );
+return;
+}
 
-      return;
-    }
-
-   catch (error) {
+   }catch (error) {
     setErr(
       `Erreur pendant l'authentification : ${
         error?.message || "Erreur inconnue"
