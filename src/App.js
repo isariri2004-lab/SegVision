@@ -6281,7 +6281,7 @@ variant.biometric.optimizedArray
 angle: variant.angle,
 }));
 
-```
+
 identifications.sort((a, b) => {
   if (a.recognized !== b.recognized) {
     return Number(b.recognized) -
@@ -6297,7 +6297,7 @@ return identifications[0] || {
   similarity: 0,
   angle: 0,
 };
-```
+
 
 };
 
@@ -6453,7 +6453,7 @@ setError(
 setLoading(false);
 }
 };
-}
+
   const Drop = ({ file, setFile, inputRef, label }) => (
     <>
       <input ref={inputRef} type="file" accept=".png,.jpg,.jpeg,.bmp" style={{ display:"none" }} onChange={event => setFile(event.target.files[0] || null)} />
