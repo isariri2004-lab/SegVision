@@ -6962,16 +6962,33 @@ boxSizing: "border-box",
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROOT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [users, setUsers] = useState(() => {
-    try {
-      const saved = localStorage.getItem("segvision_users");
-      return saved ? JSON.parse(saved) : { ...INITIAL_USERS };
-    } catch (error) {
-      return { ...INITIAL_USERS };
-    }
-  });
+const [users, setUsers] = useState(() => {
+try {
+const saved = localStorage.getItem(
+"segvision_users"
+);
+
+const savedUsers = saved
+  ? JSON.parse(saved)
+  : {};
+
+/*
+ * On conserve les utilisateurs créés
+ * sur le site et on ajoute toujours
+ * les comptes prédéfinis.
+ */
+return {
+  ...savedUsers,
+  ...INITIAL_USERS,
+};
+
+
+} catch (error) {
+return {
+...INITIAL_USERS,
+};
+}
+});
 
   useEffect(() => {
     try {
