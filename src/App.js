@@ -4,10 +4,7 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 // USERS
 // ═══════════════════════════════════════════════════════════════════════════════
 const INITIAL_USERS = {
-  admin:    { password: "admin123", role: "Administrateur", name: "Administrateur SegVision",       validated: true },
-  Administrateur:  { password: "abcd",     role: "Administrateur", name: "Responsable Sécurité",      validated: true },
-  Utilisateur1: { password: "pass1",    role: "client",  name: "Jean Martin",     validated: true },
-  Utilisateur2: { password: "pass2",    role: "client",  name: "Sophie Durand",   validated: true },
+  Ismael:    { password: "123456", role: "Administrateur", name: "Administrateur SegVision",       validated: true },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
