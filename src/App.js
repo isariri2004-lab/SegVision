@@ -1814,43 +1814,99 @@ const compareRetinaRotationAware = (
   };
 };
 
+// Regroupe le vecteur principal et toutes les orientations enregistrées.
+// Les anciens comptes qui ne possèdent qu'un seul retineVector restent compatibles.
+const getRetinaReferenceVectors = (
+  referenceVector,
+  referenceVectors = []
+) => {
+  const vectors = [];
+  const signatures = new Set();
+
+  const addVector = vector => {
+    if (!validVector(vector, 5)) return;
+
+    const normalized = vector.map(Number);
+    const signature = normalized
+      .map(value => value.toFixed(6))
+      .join("|");
+
+    if (signatures.has(signature)) return;
+
+    signatures.add(signature);
+    vectors.push(normalized);
+  };
+
+  addVector(referenceVector);
+
+  if (Array.isArray(referenceVectors)) {
+    for (const item of referenceVectors) {
+      if (Array.isArray(item)) {
+        addVector(item);
+      } else {
+        addVector(
+          item?.vector ||
+          item?.optimizedArray ||
+          item?.biometric?.optimizedArray
+        );
+      }
+    }
+  }
+
+  return vectors;
+};
+
 const findBestRetinaVariant = (
   variants,
-  referenceVector
+  referenceVector,
+  referenceVectors = []
 ) => {
+  const storedVectors =
+    getRetinaReferenceVectors(
+      referenceVector,
+      referenceVectors
+    );
+
   let best = null;
 
   for (const variant of variants) {
-    const comparison =
-      compareRetinaRotationAware(
-        variant.biometric.optimizedArray,
-        referenceVector
-      );
-
-    const candidate = {
-      ...variant,
-      comparison,
-    };
-
-    if (
-      !best ||
-      (
-        comparison.match &&
-        !best.comparison.match
-      ) ||
-      (
-        comparison.match ===
-          best.comparison.match &&
-        comparison.similarity >
-          best.comparison.similarity
-      )
+    for (
+      let referenceIndex = 0;
+      referenceIndex < storedVectors.length;
+      referenceIndex++
     ) {
-      best = candidate;
-    }
+      const comparison =
+        compareRetinaRotationAware(
+          variant.biometric.optimizedArray,
+          storedVectors[referenceIndex]
+        );
 
-    // La même signature exacte permet d'arrêter immédiatement.
-    if (comparison.exact) {
-      return candidate;
+      const candidate = {
+        ...variant,
+        referenceIndex,
+        comparison,
+      };
+
+      if (
+        !best ||
+        (
+          comparison.match &&
+          !best.comparison.match
+        ) ||
+        (
+          comparison.match ===
+            best.comparison.match &&
+          comparison.similarity >
+            best.comparison.similarity
+        )
+      ) {
+        best = candidate;
+      }
+
+      // La même signature exacte permet d'arrêter immédiatement.
+      if (comparison.exact) {
+        return candidate;
+      }
     }
   }
 
@@ -1859,11 +1915,18 @@ const findBestRetinaVariant = (
 
 const compareRetinaLoginRotations = async (
   file,
-  referenceVector
+  referenceVector,
+  referenceVectors = []
 ) => {
-  if (!validVector(referenceVector, 5)) {
+  const storedVectors =
+    getRetinaReferenceVectors(
+      referenceVector,
+      referenceVectors
+    );
+
+  if (storedVectors.length === 0) {
     throw new Error(
-      "Le vecteur rétinien enregistré est invalide."
+      "Les vecteurs rétiniens enregistrés sont invalides."
     );
   }
 
@@ -1873,7 +1936,8 @@ const compareRetinaLoginRotations = async (
   const best =
     findBestRetinaVariant(
       variants,
-      referenceVector
+      referenceVector,
+      referenceVectors
     );
 
   if (!best) {
@@ -2330,7 +2394,10 @@ if (u.role === "client") {
 
   if (
     requiredMode === "double" &&
-    !u.retineVector
+    getRetinaReferenceVectors(
+      u.retineVector,
+      u.retineVectors
+    ).length === 0
   ) {
     setErr(
       "Aucune rétine n'est enregistrée pour ce compte Premium."
@@ -2381,7 +2448,8 @@ if (requiredMode === "double") {
   const retinaRotationResult =
     await compareRetinaLoginRotations(
       retineFile,
-      u.retineVector
+      u.retineVector,
+      u.retineVectors
     );
 
   retineComparison =
@@ -5132,6 +5200,7 @@ previous
 ? {
 ...previous,
 retine: null,
+retineVectors: null,
 }
 : previous
 );
@@ -5158,16 +5227,47 @@ setIdentityCheck(previous => ({
 
 setBusy(
 mode === "retine"
-? "Analyse et identification de la rétine..."
+? "Analyse de la rétine et génération automatique de toutes les rotations..."
 : "Analyse et identification de l'empreinte..."
 );
 
 try {
-const result = await processBiometric(
-file,
-mode
-);
+let result = null;
+let retineVectors = null;
 
+if (mode === "retine") {
+  const variants =
+    await processRetinaVariants(file);
+
+  const originalVariant =
+    variants.find(
+      variant =>
+        variant.angle === 0 &&
+        !variant.flipH
+    ) || variants[0];
+
+  if (!originalVariant) {
+    throw new Error(
+      "Aucune orientation de la rétine n'a pu être générée."
+    );
+  }
+
+  result = originalVariant.biometric;
+
+  retineVectors = variants
+    .map(
+      variant =>
+        variant.biometric.optimizedArray
+    )
+    .filter(vector =>
+      validVector(vector, 5)
+    );
+} else {
+  result = await processBiometric(
+    file,
+    mode
+  );
+}
 
 const identification =
   identifyInDatabase(
@@ -5178,6 +5278,9 @@ const identification =
 setBio(previous => ({
   ...(previous || {}),
   [mode]: result,
+  ...(mode === "retine"
+    ? { retineVectors }
+    : {}),
 }));
 
 setIdentityCheck(previous => ({
@@ -5236,6 +5339,16 @@ if (
   !bio?.retine
 ) {
   return "Le mode Premium nécessite également une rétine.";
+}
+
+if (
+  securityMode === "double" &&
+  getRetinaReferenceVectors(
+    bio?.retine?.optimizedArray,
+    bio?.retineVectors
+  ).length < 2
+) {
+  return "Les rotations de la rétine n'ont pas été correctement générées. Réimportez l'image rétinienne.";
 }
 const fingerprintIdentity =
   identityCheck.empreinte;
@@ -5304,6 +5417,13 @@ const account = {
     ? bio.retine.optimizedArray
     : null,
 
+  retineVectors: premium
+    ? getRetinaReferenceVectors(
+        bio.retine.optimizedArray,
+        bio.retineVectors
+      )
+    : null,
+
   hasEmpreinte: true,
   hasRetine: premium,
 };
@@ -5328,6 +5448,13 @@ setDatabase(previous => [
 
     retineVector: premium
       ? bio.retine.optimizedArray
+      : null,
+
+    retineVectors: premium
+      ? getRetinaReferenceVectors(
+          bio.retine.optimizedArray,
+          bio.retineVectors
+        )
       : null,
 
     hasEmpreinte: true,
@@ -5511,7 +5638,7 @@ mode
           }}
         >
           {mode === "retine"
-            ? "Rétine analysée"
+            ? "Rétine analysée · rotations enregistrées"
             : "Empreinte analysée"}
         </div>
       </>
@@ -6032,6 +6159,20 @@ identification={identityCheck.retine}
               )
               .join(", ")}
             ]
+          </div>
+
+          <div
+            style={{
+              fontSize: 11,
+              color: C.success,
+              marginTop: 7,
+              fontWeight: 700,
+            }}
+          >
+            {getRetinaReferenceVectors(
+              bio.retine.optimizedArray,
+              bio.retineVectors
+            ).length} orientations rétiniennes enregistrées automatiquement
           </div>
         </div>
       )}
