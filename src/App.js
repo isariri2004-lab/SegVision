@@ -6962,6 +6962,8 @@ boxSizing: "border-box",
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROOT
 // ═══════════════════════════════════════════════════════════════════════════════
+export default function App() {
+const [user, setUser] = useState(null);
 const [users, setUsers] = useState(() => {
 try {
 const saved = localStorage.getItem(
