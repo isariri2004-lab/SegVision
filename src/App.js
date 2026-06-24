@@ -1616,10 +1616,11 @@ const rotateRetinaForLogin = (
   flipH = false
 ) =>
 new Promise((resolve, reject) => {
-if (angle === 0) {
+if (angle === 0 && !flipH) {
 resolve(file);
 return;
 }
+
 
 const image = new Image();
 const imageUrl =
@@ -1684,6 +1685,16 @@ image.onload = () => {
     context.rotate(
       angle * Math.PI / 180
     );
+context.rotate(
+angle * Math.PI / 180
+);
+
+context.scale(
+flipH ? -1 : 1,
+1
+);
+
+context.drawImage(
 
     context.drawImage(
       image,
@@ -1821,7 +1832,7 @@ onProgress(angle, flipH);
 if (!best) {
 throw new Error(
 "Aucune orientation de la rétine n'a pu être analysée."
-);
+);LoginPage
 }
 
 return best;
