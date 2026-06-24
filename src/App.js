@@ -5790,12 +5790,12 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
 
   const [database, setDatabase] = useState(() => {
     const fallback = [
-      { id:"camille", name:"Camille", date:"18/06/2026", retineVector:[5937,1.5451,1.2127,2.8667,3.1170], empreinteVector:[41501,41498,3,953.3447,-0.0086,1.9102], hasEmpreinte:true },
-      { id:"steven", name:"Steven", date:"19/06/2026", retineVector:[6273,1.5488,1.2,1.913,1.5993], empreinteVector:[66111,66109,2,991.4667,-1.5095,2.5649], hasEmpreinte:true },
-      { id:"tidar", name:"Tidar", date:"18/06/2026", retineVector:[6413,1.621,1.2,2.9683,3.034], empreinteVector:[60293,60291,2,999.1383,0.468,1.8129], hasEmpreinte:true },
-      { id:"shanice", name:"Shanice", date:"18/06/2026", retineVector:[6154,1.4684,1.177,2.2308,1.8462], empreinteVector:[73165,73165,0,999.5492,1.4086,2.0869], hasEmpreinte:true },
-      { id:"aminata", name:"Aminata", date:"18/06/2026", retineVector:[4941,1.5814,1.1142,2.1613,1.8156], empreinteVector:[69246,69244,2,999.7257,1.247,1.9928], hasEmpreinte:true },
-    ];
+{id: "camille",name: "Camille",date: "18/06/2026",authMode: "double",retineVector: [6039.0000,1.8887,1.2728,4.4074,3.4347,],empreinteVector: [2863.0000,2718.0000,145.0000,331.8266,0.5742,1.8469,],hasEmpreinte: true,hasRetine: true,},
+{id: "tidar",name: "Tidar",date: "18/06/2026",authMode: "double",retineVector: [6760.0000,1.5119,1.1628,2.9672,2.7459,],empreinteVector: [3170.0000,3056.0000,114.0000,483.8217,0.5675,1.8372,],hasEmpreinte: true,hasRetine: true,},
+{id: "aminata",name: "Aminata",date: "18/06/2026",authMode: "double",retineVector: [5627.0000,1.5298,1.2298,4.1538,3.0470,],empreinteVector: [3211.0000,3122.0000,89.0000,437.4659,0.4433,1.8417,],hasEmpreinte: true,hasRetine: true,},
+{id: "shanice",name: "Shanice",date: "18/06/2026",authMode: "double",retineVector: [6010.0000,1.5571,1.2258,3.2162,3.0057,],empreinteVector: [4631.0000,4549.0000,82.0000,382.7905,0.6141,1.8998,],hasEmpreinte: true,hasRetine: true,},
+{id: "steven",name: "Steven",date: "19/06/2026",authMode: "double",retineVector: [6668.0000,1.9566,1.2320,4.6842,3.8533,],empreinteVector: [3604.0000,3449.0000,155.0000,374.0529,0.0070,1.9405,],hasEmpreinte: true,hasRetine: true,},
+];
     try {
       const saved = localStorage.getItem("segvision_biometric_database_v3");
       return saved ? JSON.parse(saved) : fallback;
