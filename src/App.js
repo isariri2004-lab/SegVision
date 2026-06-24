@@ -1689,9 +1689,6 @@ context.scale(
 flipH ? -1 : 1,
 1
 );
-
-context.drawImage(
-
     context.drawImage(
       image,
       sourceX,
