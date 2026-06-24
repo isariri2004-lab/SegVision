@@ -2377,7 +2377,7 @@ retinaRotationResult.comparison;
       return;
     }
 
-  } catch (error) {
+   catch (error) {
     setErr(
       `Erreur pendant l'authentification : ${
         error?.message || "Erreur inconnue"
