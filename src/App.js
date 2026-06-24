@@ -1610,6 +1610,18 @@ const RETINA_ANGLES = [
   330,
 ];
 
+// Angles intermédiaires testés uniquement si les rotations principales
+// ne suffisent pas. Cela permet de reconnaître aussi 15°, 45°, 75°, etc.
+const RETINA_HALF_STEP_ANGLES =
+  RETINA_ANGLES.map(angle => angle + 15);
+
+// Dernier affinage : une orientation tous les 7,5° entre les angles déjà testés.
+// La différence résiduelle maximale tombe ainsi à environ 3,75°.
+const RETINA_FINE_ANGLES = Array.from(
+  { length: 24 },
+  (_, index) => 7.5 + index * 15
+);
+
 const transformRetinaFile = (
   file,
   angle,
@@ -1747,15 +1759,24 @@ const transformRetinaFile = (
     image.src = imageUrl;
   });
 
-const processRetinaVariants = async file => {
+const processRetinaVariants = async (
+  file,
+  angles = RETINA_ANGLES,
+  includeMirror = true
+) => {
   const variants = [];
 
   /*
-   * 12 rotations normales + 12 rotations en miroir.
-   * Le site ne montre pas les angles pendant la connexion.
+   * Par défaut : rotations normales + miroir pour l'enregistrement.
+   * Pendant la connexion, le miroir n'est pas recalculé inutilement :
+   * les versions miroir sont déjà présentes dans les références du compte.
    */
-  for (const flipH of [false, true]) {
-    for (const angle of RETINA_ANGLES) {
+  const flipModes = includeMirror
+    ? [false, true]
+    : [false];
+
+  for (const flipH of flipModes) {
+    for (const angle of angles) {
       const transformedFile =
         await transformRetinaFile(
           file,
@@ -1930,14 +1951,47 @@ const compareRetinaLoginRotations = async (
     );
   }
 
-  const variants =
-    await processRetinaVariants(file);
+  const testedVariants = [];
 
-  const best =
-    findBestRetinaVariant(
-      variants,
+  const testAngles = async angles => {
+    const newVariants =
+      await processRetinaVariants(
+        file,
+        angles,
+        false
+      );
+
+    testedVariants.push(...newVariants);
+
+    return findBestRetinaVariant(
+      testedVariants,
       referenceVector,
       referenceVectors
+    );
+  };
+
+  // 1) Recherche rapide tous les 30°.
+  let best =
+    await testAngles(RETINA_ANGLES);
+
+  if (best?.comparison?.match) {
+    return best;
+  }
+
+  // 2) Si nécessaire, ajout des angles 15°, 45°, 75°, etc.
+  best =
+    await testAngles(
+      RETINA_HALF_STEP_ANGLES
+    );
+
+  if (best?.comparison?.match) {
+    return best;
+  }
+
+  // 3) Dernier affinage tous les 7,5° pour les rotations inhabituelles.
+  best =
+    await testAngles(
+      RETINA_FINE_ANGLES
     );
 
   if (!best) {
