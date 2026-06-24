@@ -6115,91 +6115,97 @@ function RetinaComparisonPanel({
 
 const rotateRetinaFile = (file, angle) =>
 new Promise((resolve, reject) => {
-const image = new Image();
-const imageUrl = URL.createObjectURL(file);
+/*
+* À 0°, on garde exactement l'image originale.
+* Cela permet aussi de retrouver les vecteurs
+* déjà enregistrés dans la base.
+*/
+if (angle === 0) {
+resolve(file);
+return;
+}
 
+const image = new Image();
+const imageUrl =
+  URL.createObjectURL(file);
 
 image.onload = () => {
   try {
-    const radians =
-      angle * Math.PI / 180;
-
     /*
-     * Padding noir de 15 % autour
-     * de l'image avant la rotation.
+     * On travaille sur un carré centré
+     * sans agrandir le canvas.
      */
-    const padding = Math.ceil(
-      Math.max(
-        image.width,
-        image.height
-      ) * 0.15
+    const side = Math.min(
+      image.width,
+      image.height
     );
 
-    const paddedWidth =
-      image.width + padding * 2;
+    const sourceX =
+      (image.width - side) / 2;
 
-    const paddedHeight =
-      image.height + padding * 2;
-
-    /*
-     * Canvas carré suffisamment grand
-     * pour qu'aucune rotation ne coupe
-     * les coins de l'image.
-     */
-    const canvasSize = Math.ceil(
-      Math.sqrt(
-        paddedWidth ** 2 +
-        paddedHeight ** 2
-      )
-    );
+    const sourceY =
+      (image.height - side) / 2;
 
     const canvas =
       document.createElement("canvas");
 
-    canvas.width = canvasSize;
-    canvas.height = canvasSize;
+    canvas.width = side;
+    canvas.height = side;
 
     const context =
       canvas.getContext("2d");
 
     if (!context) {
-      URL.revokeObjectURL(imageUrl);
-
-      reject(
-        new Error(
-          "Impossible de créer le canvas."
-        )
+      throw new Error(
+        "Impossible de créer le canvas."
       );
-      return;
     }
 
     context.fillStyle = "#000000";
+
     context.fillRect(
       0,
       0,
-      canvas.width,
-      canvas.height
+      side,
+      side
     );
 
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
+    context.imageSmoothingEnabled =
+      true;
+
+    context.imageSmoothingQuality =
+      "high";
 
     context.translate(
-      canvas.width / 2,
-      canvas.height / 2
+      side / 2,
+      side / 2
     );
 
-    context.rotate(radians);
+    context.rotate(
+      angle * Math.PI / 180
+    );
 
+    /*
+     * L'image garde exactement la même
+     * échelle, même après la rotation.
+     */
     context.drawImage(
       image,
-      -image.width / 2,
-      -image.height / 2
+      sourceX,
+      sourceY,
+      side,
+      side,
+      -side / 2,
+      -side / 2,
+      side,
+      side
     );
 
     canvas.toBlob(
       blob => {
-        URL.revokeObjectURL(imageUrl);
+        URL.revokeObjectURL(
+          imageUrl
+        );
 
         if (!blob) {
           reject(
@@ -6222,14 +6228,19 @@ image.onload = () => {
       },
       "image/png"
     );
-  } catch (rotationError) {
-    URL.revokeObjectURL(imageUrl);
-    reject(rotationError);
+  } catch (error) {
+    URL.revokeObjectURL(
+      imageUrl
+    );
+
+    reject(error);
   }
 };
 
 image.onerror = () => {
-  URL.revokeObjectURL(imageUrl);
+  URL.revokeObjectURL(
+    imageUrl
+  );
 
   reject(
     new Error(
@@ -6242,6 +6253,7 @@ image.src = imageUrl;
 
 
 });
+
 
 const processRetinaRotations =
 async file => {
@@ -6379,14 +6391,31 @@ let bestPair = null;
  */
 for (const variantA of variantsA) {
   for (const variantB of variantsB) {
-    const comparison =
-      compareRetinaVectors(
-        variantA.biometric
-          .optimizedArray,
-        variantB.biometric
-          .optimizedArray
-      );
+const rawComparison =
+compareRetinaVectors(
+variantA.biometric.optimizedArray,
+variantB.biometric.optimizedArray
+);
 
+/*
+
+* Tolérance spéciale uniquement pour la page
+* de comparaison avec rotations.
+*
+* Cela ne modifie pas les règles générales
+* d'authentification biométrique.
+  */
+  const comparison = {
+  ...rawComparison,
+
+match:
+rawComparison.match ||
+(
+rawComparison.within >= 3 &&
+rawComparison.distance <= 0.80 &&
+rawComparison.similarity >= 52
+),
+};
     if (
       !bestPair ||
       comparison.similarity >
