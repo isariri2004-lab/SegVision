@@ -4653,12 +4653,12 @@ retine: null,
 : previous
 );
 
-```
+
 setIdentityCheck(previous => ({
   ...previous,
   retine: null,
 }));
-```
+
 
 }
 };
@@ -4754,7 +4754,33 @@ if (
 ) {
   return "Le mode Premium nécessite également une rétine.";
 }
+const fingerprintIdentity =
+  identityCheck.empreinte;
 
+const retinaIdentity =
+  identityCheck.retine;
+
+if (
+  securityMode === "double" &&
+  fingerprintIdentity?.recognized &&
+  retinaIdentity?.recognized &&
+  fingerprintIdentity.key !==
+    retinaIdentity.key
+) {
+  return `Incohérence biométrique : l'empreinte appartient à ${fingerprintIdentity.name}, mais la rétine appartient à ${retinaIdentity.name}.`;
+}
+
+if (fingerprintIdentity?.recognized) {
+  return `Cette empreinte appartient déjà à ${fingerprintIdentity.name}. Impossible de créer un deuxième compte avec la même identité biométrique.`;
+}
+
+if (
+  securityMode === "double" &&
+  retinaIdentity?.recognized
+) {
+  return `Cette rétine appartient déjà à ${retinaIdentity.name}. Impossible de créer un deuxième compte avec la même identité biométrique.`;
+}
+  
 return null;
 
 
@@ -5034,12 +5060,75 @@ mode
     )}
   </div>
 </>
+const IdentityNotice = ({
+  type,
+  identification,
+}) => {
+  if (!identification) return null;
 
+  const label =
+    type === "empreinte"
+      ? "empreinte"
+      : "rétine";
 
-);
+  if (identification.recognized) {
+    return (
+      <div
+        style={{
+          padding: "11px 13px",
+          marginTop: -6,
+          marginBottom: 14,
+          background: C.redBg,
+          border: `1px solid ${C.red}40`,
+          borderRadius: 9,
+          color: C.red,
+          fontSize: 12,
+          lineHeight: 1.5,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 800,
+            marginBottom: 3,
+          }}
+        >
+          ❌ Biométrie déjà enregistrée
+        </div>
+
+        Cette {label} appartient déjà à{" "}
+        <strong>{identification.name}</strong>
+        {" · "}
+        Similarité :{" "}
+        <strong>
+          {identification.similarity.toFixed(1)}%
+        </strong>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        padding: "11px 13px",
+        marginTop: -6,
+        marginBottom: 14,
+        background: C.successBg,
+        border: `1px solid ${C.success}40`,
+        borderRadius: 9,
+        color: C.success,
+        fontSize: 12,
+      }}
+    >
+      <strong>✅ Nouvelle signature biométrique</strong>
+      <div style={{ marginTop: 3 }}>
+        Cette {label} ne correspond à aucun utilisateur enregistré.
+      </div>
+    </div>
+  );
+};
 
 return (
-<div
+  <div
 style={{
 display: "grid",
 gridTemplateColumns:
