@@ -1611,8 +1611,9 @@ const LOGIN_RETINA_ANGLES = [
 ];
 
 const rotateRetinaForLogin = (
-file,
-angle
+  file,
+  angle,
+  flipH = false
 ) =>
 new Promise((resolve, reject) => {
 if (angle === 0) {
@@ -1756,12 +1757,73 @@ referenceVector,
 onProgress
 ) => {
 let best = null;
+let exactFound = false;
+
+for (const flipH of [false, true]) {
 for (
-  const angle of LOGIN_RETINA_ANGLES
+const angle of LOGIN_RETINA_ANGLES
 ) {
-  if (onProgress) {
-    onProgress(angle);
-  }
+if (onProgress) {
+onProgress(
+angle,
+flipH
+);
+}
+const transformedFile =
+  await rotateRetinaForLogin(
+    file,
+    angle,
+    flipH
+  );
+
+const biometric =
+  await processBiometric(
+    transformedFile,
+    "retine"
+  );
+
+const comparison =
+  compareRetinaVectors(
+    biometric.optimizedArray,
+    referenceVector
+  );
+
+const candidate = {
+  angle,
+  flipH,
+  biometric,
+  comparison,
+};
+
+if (
+  !best ||
+  (
+    comparison.match &&
+    !best.comparison.match
+  ) ||
+  (
+    comparison.match ===
+      best.comparison.match &&
+    comparison.similarity >
+      best.comparison.similarity
+  )
+) {
+  best = candidate;
+}
+
+if (comparison.exact) {
+  exactFound = true;
+  break;
+}
+
+
+}
+
+if (exactFound) {
+break;
+}
+}
+
 
   const rotatedFile =
     await rotateRetinaForLogin(
@@ -6411,9 +6473,11 @@ image.onload = () => {
       side / 2
     );
 
-    context.rotate(
-      angle * Math.PI / 180
-    );
+   context.scale(
+flipH ? -1 : 1,
+1
+);
+
 
     context.drawImage(
       image,
