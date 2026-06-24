@@ -5797,7 +5797,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
       { id:"aminata", name:"Aminata", date:"18/06/2026", retineVector:[4941,1.5814,1.1142,2.1613,1.8156], empreinteVector:[69246,69244,2,999.7257,1.247,1.9928], hasEmpreinte:true },
     ];
     try {
-      const saved = localStorage.getItem("segvision_biometric_database_v2");
+      const saved = localStorage.getItem("segvision_biometric_database_v3");
       return saved ? JSON.parse(saved) : fallback;
     } catch (error) {
       return fallback;
@@ -5806,7 +5806,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
 
   useEffect(() => {
     try {
-      localStorage.setItem("segvision_biometric_database_v2", JSON.stringify(database));
+      localStorage.setItem("segvision_biometric_database_v3", JSON.stringify(database));
     } catch (error) {
       console.error("Impossible d'enregistrer la base biométrique", error);
     }
