@@ -1595,6 +1595,239 @@ img.src = url;
 
 });
 }
+const LOGIN_RETINA_ANGLES = [
+0,
+30,
+60,
+90,
+120,
+150,
+180,
+210,
+240,
+270,
+300,
+330,
+];
+
+const rotateRetinaForLogin = (
+file,
+angle
+) =>
+new Promise((resolve, reject) => {
+if (angle === 0) {
+resolve(file);
+return;
+}
+
+const image = new Image();
+const imageUrl =
+  URL.createObjectURL(file);
+
+image.onload = () => {
+  try {
+    /*
+     * Carré centré afin de garder
+     * toujours la même taille.
+     */
+    const side = Math.min(
+      image.width,
+      image.height
+    );
+
+    const sourceX =
+      (image.width - side) / 2;
+
+    const sourceY =
+      (image.height - side) / 2;
+
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = side;
+    canvas.height = side;
+
+    const context =
+      canvas.getContext("2d");
+
+    if (!context) {
+      throw new Error(
+        "Canvas 2D indisponible."
+      );
+    }
+
+    /*
+     * Le fond noir forme le padding
+     * autour de l'image tournée.
+     */
+    context.fillStyle = "#000000";
+
+    context.fillRect(
+      0,
+      0,
+      side,
+      side
+    );
+
+    context.imageSmoothingEnabled =
+      true;
+
+    context.imageSmoothingQuality =
+      "high";
+
+    context.translate(
+      side / 2,
+      side / 2
+    );
+
+    context.rotate(
+      angle * Math.PI / 180
+    );
+
+    context.drawImage(
+      image,
+      sourceX,
+      sourceY,
+      side,
+      side,
+      -side / 2,
+      -side / 2,
+      side,
+      side
+    );
+
+    canvas.toBlob(
+      blob => {
+        URL.revokeObjectURL(
+          imageUrl
+        );
+
+        if (!blob) {
+          reject(
+            new Error(
+              "Impossible de générer la rotation."
+            )
+          );
+          return;
+        }
+
+        resolve(
+          new File(
+            [blob],
+            `login_rotation_${angle}_${file.name}`,
+            {
+              type: "image/png",
+            }
+          )
+        );
+      },
+      "image/png"
+    );
+  } catch (error) {
+    URL.revokeObjectURL(
+      imageUrl
+    );
+
+    reject(error);
+  }
+};
+
+image.onerror = () => {
+  URL.revokeObjectURL(
+    imageUrl
+  );
+
+  reject(
+    new Error(
+      "Impossible de lire la rétine."
+    )
+  );
+};
+
+image.src = imageUrl;
+
+
+});
+
+const compareRetinaLoginRotations =
+async (
+file,
+referenceVector,
+onProgress
+) => {
+let best = null;
+for (
+  const angle of LOGIN_RETINA_ANGLES
+) {
+  if (onProgress) {
+    onProgress(angle);
+  }
+
+  const rotatedFile =
+    await rotateRetinaForLogin(
+      file,
+      angle
+    );
+
+  const biometric =
+    await processBiometric(
+      rotatedFile,
+      "retine"
+    );
+
+  const comparison =
+    compareRetinaVectors(
+      biometric.optimizedArray,
+      referenceVector
+    );
+
+  const candidate = {
+    angle,
+    biometric,
+    comparison,
+  };
+
+  /*
+   * Une correspondance valide passe
+   * toujours avant une non-correspondance.
+   * Sinon, on garde la meilleure similarité.
+   */
+  if (
+    !best ||
+    (
+      comparison.match &&
+      !best.comparison.match
+    ) ||
+    (
+      comparison.match ===
+        best.comparison.match &&
+      comparison.similarity >
+        best.comparison.similarity
+    )
+  ) {
+    best = candidate;
+  }
+
+  /*
+   * Une correspondance exacte suffit :
+   * inutile de tester les autres angles.
+   */
+  if (comparison.exact) {
+    break;
+  }
+}
+
+if (!best) {
+  throw new Error(
+    "Aucune orientation n'a pu être analysée."
+  );
+}
+
+return best;
+
+
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2088,18 +2321,20 @@ if (u.role === "client") {
         "Vérification de la rétine Premium..."
       );
 
-      const retineResult =
-        await processBiometric(
-          retineFile,
-          "retine"
-        );
+     const retinaRotationResult =
+await compareRetinaLoginRotations(
+retineFile,
+u.retineVector,
+angle => {
+setLoadingMessage(
+`Vérification de la rétine : rotation ${angle}°...`
+);
+}
+);
 
-      retineComparison =
-        compareRetinaVectors(
-          retineResult.optimizedArray,
-          u.retineVector
-        );
-    }
+retineComparison =
+retinaRotationResult.comparison;
+
 
     const globalMatch =
       empreinteComparison.match &&
