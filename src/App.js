@@ -1681,10 +1681,7 @@ image.onload = () => {
       side / 2,
       side / 2
     );
-
-    context.rotate(
-      angle * Math.PI / 180
-    );
+    
 context.rotate(
 angle * Math.PI / 180
 );
