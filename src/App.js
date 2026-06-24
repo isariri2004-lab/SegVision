@@ -5889,7 +5889,11 @@ function AccountManagementPanel({
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPARAISON DIRECTE DE DEUX RÉTINES
 // ═══════════════════════════════════════════════════════════════════════════════
-function RetinaComparisonPanel({ accentColor=C.primary }) {
+function RetinaComparisonPanel({
+  database = [],
+  accentColor = C.primary,
+}) {
+  
   const [fileA, setFileA] = useState(null);
   const [fileB, setFileB] = useState(null);
   const [result, setResult] = useState(null);
@@ -5897,6 +5901,52 @@ function RetinaComparisonPanel({ accentColor=C.primary }) {
   const [error, setError] = useState("");
   const refA = useRef();
   const refB = useRef();
+const identifyRetina = vector => {
+const candidates = database
+.filter(user =>
+validVector(user.retineVector, 5)
+)
+.map(user => {
+const comparison =
+compareRetinaVectors(
+vector,
+user.retineVector
+);
+
+
+  return {
+    user,
+    comparison,
+  };
+})
+.sort(
+  (a, b) =>
+    b.comparison.similarity -
+    a.comparison.similarity
+);
+
+
+const best = candidates[0];
+
+if (!best || !best.comparison.match) {
+return {
+recognized: false,
+name: null,
+similarity:
+best?.comparison?.similarity || 0,
+};
+}
+
+return {
+recognized: true,
+name:
+best.user.name ||
+best.user.username ||
+"Utilisateur",
+similarity:
+best.comparison.similarity,
+};
+};
 
   const run = async () => {
     if (!fileA || !fileB) return;
@@ -5908,8 +5958,30 @@ function RetinaComparisonPanel({ accentColor=C.primary }) {
         processBiometric(fileA, "retine"),
         processBiometric(fileB, "retine"),
       ]);
-      const comparison = compareRetinaVectors(retinaA.optimizedArray, retinaB.optimizedArray);
-      setResult({ retinaA, retinaB, comparison });
+      const comparison =
+compareRetinaVectors(
+retinaA.optimizedArray,
+retinaB.optimizedArray
+);
+
+const identityA =
+identifyRetina(
+retinaA.optimizedArray
+);
+
+const identityB =
+identifyRetina(
+retinaB.optimizedArray
+);
+
+setResult({
+retinaA,
+retinaB,
+comparison,
+identityA,
+identityB,
+});
+
     } catch (exception) {
       setError(`Comparaison impossible : ${exception.message}`);
     } finally {
@@ -5963,6 +6035,116 @@ function RetinaComparisonPanel({ accentColor=C.primary }) {
               {result.comparison.exact ? "Correspondance exacte" : result.comparison.match ? "Correspondance tolérée" : "Non reconnu"}
             </span>
           </div>
+              <div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 14,
+    marginBottom: 16,
+  }}
+>
+  {[
+    ["Rétine A", result.identityA],
+    ["Rétine B", result.identityB],
+  ].map(([label, identity]) => (
+    <div
+      key={label}
+      style={{
+        padding: 15,
+        borderRadius: 10,
+        border: `2px solid ${
+          identity?.recognized
+            ? C.success
+            : C.red
+        }`,
+        background:
+          identity?.recognized
+            ? C.successBg
+            : C.redBg,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          color: C.muted,
+          fontWeight: 700,
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+
+
+  {identity?.recognized ? (
+    <>
+      <div
+        style={{
+          fontWeight: 800,
+          fontSize: 16,
+          color: C.success,
+        }}
+      >
+        ✅ Cette rétine appartient à{" "}
+        {identity.name}
+      </div>
+
+      <div
+        style={{
+          fontSize: 12,
+          color: C.sub,
+          marginTop: 5,
+        }}
+      >
+        Similarité avec la base :{" "}
+        {identity.similarity.toFixed(1)} %
+      </div>
+    </>
+  ) : (
+    <div
+      style={{
+        fontWeight: 800,
+        fontSize: 16,
+        color: C.red,
+      }}
+    >
+      ❌ Cette rétine n'appartient à
+      aucun utilisateur reconnu
+    </div>
+  )}
+</div>
+
+
+))}
+
+</div>
+
+{result.identityA?.recognized &&
+result.identityB?.recognized && (
+<div
+style={{
+padding: "12px 15px",
+marginBottom: 16,
+borderRadius: 9,
+background:
+result.identityA.name ===
+result.identityB.name
+? C.successBg
+: C.warningBg,
+color:
+result.identityA.name ===
+result.identityB.name
+? C.success
+: C.warning,
+fontWeight: 800,
+fontSize: 14,
+}}
+>
+{result.identityA.name ===
+result.identityB.name
+? `✅ Les deux rétines appartiennent à ${result.identityA.name}.`
+: `⚠️ La rétine A appartient à ${result.identityA.name} et la rétine B appartient à ${result.identityB.name}.`} </div>
+)}
+
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
             {[result.retinaA.optimizedArray, result.retinaB.optimizedArray].map((vector, index) => (
               <div key={index} style={{ background:"#080F1E", borderRadius:9, padding:"14px", fontFamily:"monospace", color:index === 0 ? "#4ADE80" : "#60A5FA", fontSize:12, wordBreak:"break-word" }}>
@@ -6137,7 +6319,12 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
         />
       )}
 
-      {page === "comparaison" && <RetinaComparisonPanel accentColor={C.primary} />}
+      {page === "comparaison" && (
+  <RetinaComparisonPanel
+    database={database}
+    accentColor={C.primary}
+  />
+)}
 
       {page === "biometrie" && <BiometricDB database={database} setDatabase={setDatabase} accentColor={C.primary} />}
 
