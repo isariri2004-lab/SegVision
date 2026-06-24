@@ -4519,13 +4519,15 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
               </div>
             );
           })}
-        </>
+          </>
       )}
     </div>
   </div>
 )}
 
-
+    </div>
+  );
+}
 // ═══════════════════════════════════════════════════════════════════════════════
 // CRÉATION DE COMPTE UTILISATEUR (par l'administrateur)
 // ═══════════════════════════════════════════════════════════════════════════════
