@@ -556,13 +556,62 @@ img.onload = () => {
     oCtx.imageSmoothingEnabled = true;
     oCtx.imageSmoothingQuality = "high";
 
-    const scale = Math.min(W / img.width, H / img.height);
-    const drawW = Math.max(1, Math.round(img.width * scale));
-    const drawH = Math.max(1, Math.round(img.height * scale));
-    const drawX = Math.floor((W - drawW) / 2);
-    const drawY = Math.floor((H - drawH) / 2);
+    if (mode === "retine") {
+// Recadrage carré centré pour que toutes les rétines
+// aient la même taille et la même échelle.
+const side = Math.min(
+img.width,
+img.height
+);
 
-    oCtx.drawImage(img, drawX, drawY, drawW, drawH);
+const sourceX =
+(img.width - side) / 2;
+
+const sourceY =
+(img.height - side) / 2;
+
+oCtx.drawImage(
+img,
+sourceX,
+sourceY,
+side,
+side,
+0,
+0,
+W,
+H
+);
+} else {
+// Ancien comportement conservé pour les empreintes.
+const scale = Math.min(
+W / img.width,
+H / img.height
+);
+
+const drawW = Math.max(
+1,
+Math.round(img.width * scale)
+);
+
+const drawH = Math.max(
+1,
+Math.round(img.height * scale)
+);
+
+const drawX =
+Math.floor((W - drawW) / 2);
+
+const drawY =
+Math.floor((H - drawH) / 2);
+
+oCtx.drawImage(
+img,
+drawX,
+drawY,
+drawW,
+drawH
+);
+}
     URL.revokeObjectURL(url);
 
     const raw = oCtx.getImageData(0, 0, W, H).data;
