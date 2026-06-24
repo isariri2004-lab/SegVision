@@ -5060,6 +5060,8 @@ mode
     )}
   </div>
 </>
+);
+
 const IdentityNotice = ({
   type,
   identification,
@@ -5144,8 +5146,6 @@ marginBottom: 4,
 }}
 >
 Informations de l'utilisateur </div>
-
-
     <div
       style={{
         color: C.sub,
@@ -5188,7 +5188,6 @@ Informations de l'utilisateur </div>
         <label style={base.label}>
           Nom *
         </label>
-
         <input
           style={base.input}
           type="text"
@@ -5415,6 +5414,10 @@ Informations de l'utilisateur </div>
       mode="empreinte"
       color={C.accent}
     />
+<IdentityNotice
+type="empreinte"
+identification={identityCheck.empreinte}
+/>
 
     {securityMode === "double" && (
       <>
@@ -5432,6 +5435,11 @@ Informations de l'utilisateur </div>
           mode="retine"
           color={C.primary}
         />
+          <IdentityNotice
+type="retine"
+identification={identityCheck.retine}
+/>
+
       </>
     )}
 
