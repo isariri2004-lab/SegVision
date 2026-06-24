@@ -4550,6 +4550,11 @@ const [bio, setBio] = useState(null);
 const [busy, setBusy] = useState("");
 const [err, setErr] = useState("");
 const [created, setCreated] = useState(null);
+  
+const [identityCheck, setIdentityCheck] = useState({
+empreinte: null,
+retine: null,
+});
 
 const refRetine = useRef();
 const refEmpreinte = useRef();
@@ -4560,57 +4565,155 @@ setForm(previous => ({
 [key]: value,
 }));
 
+const identifyInDatabase = (vector, mode) => {
+const expectedLength =
+mode === "empreinte" ? 6 : 5;
+
+const vectorKey =
+mode === "empreinte"
+? "empreinteVector"
+: "retineVector";
+
+const compare =
+mode === "empreinte"
+? compareFingerprintVectors
+: compareRetinaVectors;
+
+const candidates = (database || [])
+.filter(entry =>
+validVector(
+entry[vectorKey],
+expectedLength
+)
+)
+.map(entry => ({
+entry,
+comparison: compare(
+vector,
+entry[vectorKey]
+),
+}))
+.sort(
+(first, second) =>
+second.comparison.similarity -
+first.comparison.similarity
+);
+
+const best = candidates[0];
+
+if (!best) {
+return {
+recognized: false,
+similarity: 0,
+nearestName: null,
+};
+}
+
+const name =
+best.entry.name ||
+best.entry.username ||
+"Utilisateur";
+
+const key =
+best.entry.username ||
+best.entry.id ||
+name;
+
+if (best.comparison.match) {
+return {
+recognized: true,
+name,
+key,
+similarity:
+best.comparison.similarity,
+exact:
+best.comparison.exact,
+};
+}
+
+return {
+recognized: false,
+similarity:
+best.comparison.similarity,
+nearestName: name,
+};
+};
+
 const changeMode = mode => {
 setSecurityMode(mode);
 setErr("");
 
-
 if (mode === "empreinte") {
-  setBio(previous =>
-    previous
-      ? {
-          ...previous,
-          retine: null,
-        }
-      : previous
-  );
+setBio(previous =>
+previous
+? {
+...previous,
+retine: null,
 }
+: previous
+);
 
+```
+setIdentityCheck(previous => ({
+  ...previous,
+  retine: null,
+}));
+```
 
+}
 };
 
 const handleFile = async (file, mode) => {
 if (!file) return;
 
-
 setErr("");
 
+setIdentityCheck(previous => ({
+...previous,
+[mode]: null,
+}));
+
 setBusy(
-  mode === "retine"
-    ? "Analyse rétinienne Premium en cours..."
-    : "Analyse de l'empreinte en cours..."
+mode === "retine"
+? "Analyse et identification de la rétine..."
+: "Analyse et identification de l'empreinte..."
 );
 
 try {
-  const result = await processBiometric(
-    file,
+const result = await processBiometric(
+file,
+mode
+);
+
+
+const identification =
+  identifyInDatabase(
+    result.optimizedArray,
     mode
   );
 
-  setBio(previous => ({
-    ...(previous || {}),
-    [mode]: result,
-  }));
+setBio(previous => ({
+  ...(previous || {}),
+  [mode]: result,
+}));
+
+setIdentityCheck(previous => ({
+  ...previous,
+  [mode]: identification,
+}));
+
+
 } catch (error) {
-  setErr(
-    `Erreur lors de l'analyse ${mode} : ${error.message}`
-  );
+setErr(
+`Erreur lors de l'analyse ${mode} : ${
+        error?.message || "Erreur inconnue"
+      }`
+);
 } finally {
-  setBusy("");
+setBusy("");
 }
-
-
 };
+
 
 const validate = () => {
 if (!form.prenom.trim()) {
