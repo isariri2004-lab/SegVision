@@ -5,8 +5,7 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 // ═══════════════════════════════════════════════════════════════════════════════
 const INITIAL_USERS = {
   Ismael:    { password: "123456", role: "Administrateur", name: "Administrateur SegVision",       validated: true },
-};
-camille: {
+  camille: {
 username: "camille",
 password: "Camille123",
 role: "client",
@@ -155,6 +154,7 @@ empreinteVector: [
 1.9405,
 ],
 },
+};
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
