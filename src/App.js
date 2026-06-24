@@ -2327,27 +2327,18 @@ if (u.role === "client") {
    let retineComparison = null;
 
 if (requiredMode === "double") {
-setLoadingMessage(
-"Vérification de la rétine Premium..."
-);
+  setLoadingMessage(
+    "Vérification de la rétine Premium..."
+  );
 
-const retinaRotationResult =
-await compareRetinaLoginRotations(
-retineFile,
-u.retineVector,
-(angle, flipH) => {
-setLoadingMessage(
-`Vérification de la rétine : ${angle}°${
-            flipH
-              ? " + miroir horizontal"
-              : ""
-          }...`
-);
-}
-);
+  const retinaRotationResult =
+    await compareRetinaLoginRotations(
+      retineFile,
+      u.retineVector
+    );
 
-retineComparison =
-retinaRotationResult.comparison;
+  retineComparison =
+    retinaRotationResult.comparison;
 }
 
 const globalMatch =
