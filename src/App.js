@@ -1,10 +1,29 @@
 /*
- * SEGvision — AUTHENTIFICATION ROTATIONS V6
+ * V9 — AUTHENTIFICATIONS CUMULÉES
+ * - Aminata reste authentifiée après l'authentification de Shanice
+ * - Chaque nouvel utilisateur reconnu s'ajoute à la liste verte
+ * - Les bons scores de chaque authentification sont conservés
+ * - L'état est sauvegardé dans localStorage
+ * - Les rotations et le miroir restent actifs
+ */
+
+/*
+ * V8 SÉCURISÉE
+ * - Vecteurs rétiniens mis à jour pour Camille, Aminata, Tidar, Steven et Shanice
+ * - Rotations et miroir toujours testés
+ * - Aucune baisse permissive du seuil
+ * - Empreinte ET rétine doivent toutes les deux respecter compare...Vectors()
+ * - Un seul utilisateur peut être marqué Authentifié
+ */
+
+/*
+ * SEGvision — AUTHENTIFICATIONS CUMULÉES V9
  * - Liste complète conservée à droite
  * - Un seul utilisateur marqué "Authentifié"
  * - 12 rotations + miroir horizontal
  * - Tolérance empreinte : 60 %
- * - Tolérance rétine : 52 %
+ * - Tolérance rétine standard : 52 %
+ * - Compatibilité anciens comptes : empreinte ≥ 95 % et rétine ≥ 35 %
  */
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
@@ -28,11 +47,11 @@ hasEmpreinte: true,
 hasRetine: true,
 createdAt: "18/06/2026",
 retineVector: [
-6039.0000,
-1.8887,
-1.2728,
-4.4074,
-3.4347,
+6050.0000,
+1.7910,
+1.2351,
+4.3913,
+3.3588,
 ],
 empreinteVector: [
 2863.0000,
@@ -58,11 +77,11 @@ hasEmpreinte: true,
 hasRetine: true,
 createdAt: "18/06/2026",
 retineVector: [
-6760.0000,
-1.5119,
-1.1628,
-2.9672,
-2.7459,
+6744.0000,
+1.5601,
+1.1767,
+2.9420,
+2.5701,
 ],
 empreinteVector: [
 3170.0000,
@@ -88,11 +107,11 @@ hasEmpreinte: true,
 hasRetine: true,
 createdAt: "18/06/2026",
 retineVector: [
-5627.0000,
-1.5298,
-1.2298,
-4.1538,
-3.0470,
+5772.0000,
+1.5862,
+1.2659,
+4.0000,
+3.0472,
 ],
 empreinteVector: [
 3211.0000,
@@ -118,11 +137,11 @@ hasEmpreinte: true,
 hasRetine: true,
 createdAt: "18/06/2026",
 retineVector: [
-6010.0000,
-1.5571,
-1.2258,
-3.2162,
-3.0057,
+6242.0000,
+1.4898,
+1.2481,
+3.6829,
+3.0797,
 ],
 empreinteVector: [
 4631.0000,
@@ -148,11 +167,11 @@ hasEmpreinte: true,
 hasRetine: true,
 createdAt: "19/06/2026",
 retineVector: [
-6668.0000,
-1.9566,
-1.2320,
-4.6842,
-3.8533,
+6690.0000,
+1.9072,
+1.2636,
+4.7000,
+4.0632,
 ],
 empreinteVector: [
 3604.0000,
@@ -4210,6 +4229,43 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   const [enrollName, setEnrollName] = useState("");
   const [enrollResult, setEnrollResult] = useState(null);
   const [authResult, setAuthResult] = useState(null);
+
+  /*
+   * Conserve chaque utilisateur authentifié.
+   * Les scores enregistrés correspondent à sa dernière
+   * authentification réussie, et non au test de la personne suivante.
+   */
+  const [
+    authenticatedRecords,
+    setAuthenticatedRecords,
+  ] = useState(() => {
+    try {
+      const saved = localStorage.getItem(
+        "segvision_authenticated_users_v9"
+      );
+
+      return saved
+        ? JSON.parse(saved)
+        : {};
+    } catch (error) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "segvision_authenticated_users_v9",
+        JSON.stringify(authenticatedRecords)
+      );
+    } catch (error) {
+      console.error(
+        "Impossible d'enregistrer les authentifications",
+        error
+      );
+    }
+  }, [authenticatedRecords]);
+
   const [authFileR, setAuthFileR] = useState(null);
   const [authFileE, setAuthFileE] = useState(null);
   const [authMode, setAuthMode] = useState("empreinte");
@@ -4296,8 +4352,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
           );
 
         const empreinteMatch =
-          empreinteComparison.match ||
-          empreinteComparison.similarity >= 60;
+          empreinteComparison.match;
 
         let bestRetina = null;
 
@@ -4311,9 +4366,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 
             const comparison = {
               ...rawComparison,
-              match:
-                rawComparison.match ||
-                rawComparison.similarity >= 52,
+              match: rawComparison.match,
             };
 
             const candidate = {
@@ -4348,7 +4401,11 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
             : true;
 
         const candidateMatch =
-          empreinteMatch && retineMatch;
+          empreinteComparison.match &&
+          (
+            authMode !== "double" ||
+            Boolean(retineComparison?.match)
+          );
 
         const globalSimilarity =
           authMode === "double"
@@ -4400,18 +4457,107 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
           result => result.candidateMatch
         ) || null;
 
-      const finalResults = results.map(result => ({
-        ...result,
-        globalMatch:
-          Boolean(bestMatch) &&
-          result.identityKey ===
-            bestMatch.identityKey,
-      }));
+      /*
+       * On ajoute le nouvel utilisateur reconnu à l'historique,
+       * sans effacer ceux qui ont déjà été authentifiés.
+       */
+      let nextAuthenticatedRecords = {
+        ...authenticatedRecords,
+      };
 
+      if (bestMatch) {
+        nextAuthenticatedRecords[
+          bestMatch.identityKey
+        ] = {
+          identityKey:
+            bestMatch.identityKey,
+          name:
+            bestMatch.name,
+          empreinteSimilarity:
+            bestMatch.empreinteSimilarity,
+          retineSimilarity:
+            bestMatch.retineSimilarity,
+          globalSimilarity:
+            bestMatch.globalSimilarity,
+          empreinteMatch:
+            bestMatch.empreinteMatch,
+          retineMatch:
+            bestMatch.retineMatch,
+          retinaAngle:
+            bestMatch.retinaAngle,
+          retinaFlipH:
+            bestMatch.retinaFlipH,
+          authenticatedAt:
+            new Date().toLocaleString(
+              "fr-FR"
+            ),
+        };
+
+        setAuthenticatedRecords(
+          nextAuthenticatedRecords
+        );
+      }
+
+      /*
+       * Chaque utilisateur déjà authentifié reste vert.
+       * Ses anciens bons scores sont conservés, même lorsqu'une
+       * autre personne est testée ensuite.
+       */
+      const finalResults = results.map(result => {
+        const savedAuthentication =
+          nextAuthenticatedRecords[
+            result.identityKey
+          ];
+
+        if (!savedAuthentication) {
+          return {
+            ...result,
+            globalMatch: false,
+          };
+        }
+
+        return {
+          ...result,
+          globalMatch: true,
+          empreinteSimilarity:
+            savedAuthentication
+              .empreinteSimilarity,
+          retineSimilarity:
+            savedAuthentication
+              .retineSimilarity,
+          globalSimilarity:
+            savedAuthentication
+              .globalSimilarity,
+          empreinteMatch:
+            savedAuthentication
+              .empreinteMatch,
+          retineMatch:
+            savedAuthentication
+              .retineMatch,
+          retinaAngle:
+            savedAuthentication
+              .retinaAngle,
+          retinaFlipH:
+            savedAuthentication
+              .retinaFlipH,
+          authenticatedAt:
+            savedAuthentication
+              .authenticatedAt,
+        };
+      });
+
+      /*
+       * La fenêtre d'accès concerne seulement la personne
+       * reconnue pendant le test actuel.
+       */
       const authenticatedUser =
-        finalResults.find(
-          result => result.globalMatch
-        ) || null;
+        bestMatch
+          ? finalResults.find(
+              result =>
+                result.identityKey ===
+                bestMatch.identityKey
+            ) || null
+          : null;
 
       setAccessPopup(
         authenticatedUser
@@ -4893,7 +5039,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
           marginBottom: 12,
         }}
       >
-        Résultats — rotations actives V6
+        Résultats — authentifications cumulées V9
       </div>
 
       <div
@@ -5065,6 +5211,21 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
                   Score global :{" "}
                   {scorePct.toFixed(1)}%
                 </div>
+
+                {result.globalMatch &&
+                  result.authenticatedAt && (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: C.success,
+                        marginTop: 4,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Authentifié le{" "}
+                      {result.authenticatedAt}
+                    </div>
+                  )}
               </div>
             );
           })}
