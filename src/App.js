@@ -1,4 +1,13 @@
 /*
+ * V18 — DOUBLE BASE EMPREINTES
+ * - Aucune modification de la segmentation
+ * - Chaque compte possède le vecteur de la nouvelle segmentation
+ * - Les anciens vecteurs sont conservés comme gabarits de compatibilité
+ * - L'authentification teste les deux gabarits sans baisser les seuils
+ * - La meilleure correspondance stricte est retenue
+ */
+
+/*
  * V17 — BASE EMPREINTES FORCÉE
  * - Aucune modification de la segmentation
  * - Nouveaux vecteurs empreinte conservés
@@ -108,6 +117,14 @@ empreinteVector: [
 0.2777,
 1.9184,
 ],
+empreinteLegacyVector: [
+2863.0000,
+2718.0000,
+145.0000,
+331.8266,
+0.5742,
+1.8469,
+],
 },
 
 tidar: {
@@ -137,6 +154,14 @@ empreinteVector: [
 437.6347,
 0.7141,
 1.8607,
+],
+empreinteLegacyVector: [
+3170.0000,
+3056.0000,
+114.0000,
+483.8217,
+0.5675,
+1.8372,
 ],
 },
 
@@ -168,6 +193,14 @@ empreinteVector: [
 0.4268,
 1.8650,
 ],
+empreinteLegacyVector: [
+3211.0000,
+3122.0000,
+89.0000,
+437.4659,
+0.4433,
+1.8417,
+],
 },
 
 shanice: {
@@ -198,6 +231,14 @@ empreinteVector: [
 1.1826,
 1.9648,
 ],
+empreinteLegacyVector: [
+4631.0000,
+4549.0000,
+82.0000,
+382.7905,
+0.6141,
+1.8998,
+],
 },
 
 steven: {
@@ -227,6 +268,14 @@ empreinteVector: [
 476.2147,
 0.1261,
 1.8936,
+],
+empreinteLegacyVector: [
+3604.0000,
+3449.0000,
+155.0000,
+374.0529,
+0.0070,
+1.9405,
 ],
 },
 };
@@ -600,6 +649,65 @@ function compareFingerprintVectors(a, b) {
   const match = exact || (within >= 5 && distance <= 0.85 && similarity >= 50);
 
   return { match, similarity, distance, within, deltas, exact };
+}
+
+function compareFingerprintTemplates(
+  scannedVector,
+  primaryVector,
+  legacyVector = null
+) {
+  const templates = [
+    {
+      type: "nouvelle segmentation",
+      vector: primaryVector,
+    },
+    {
+      type: "ancienne segmentation",
+      vector: legacyVector,
+    },
+  ].filter(template =>
+    validVector(template.vector, 6)
+  );
+
+  let best = null;
+
+  for (const template of templates) {
+    const comparison =
+      compareFingerprintVectors(
+        scannedVector,
+        template.vector
+      );
+
+    const candidate = {
+      ...comparison,
+      templateType: template.type,
+    };
+
+    if (
+      !best ||
+      (
+        candidate.match &&
+        !best.match
+      ) ||
+      (
+        candidate.match === best.match &&
+        candidate.similarity >
+          best.similarity
+      )
+    ) {
+      best = candidate;
+    }
+  }
+
+  return best || {
+    match: false,
+    similarity: 0,
+    distance: Infinity,
+    within: 0,
+    deltas: [],
+    exact: false,
+    templateType: null,
+  };
 }
 
 function vectorsMatch(a, b) {
@@ -3049,9 +3157,10 @@ if (u.role === "client") {
       );
 
     const empreinteComparison =
-      compareFingerprintVectors(
+      compareFingerprintTemplates(
         empreinteResult.optimizedArray,
-        u.empreinteVector
+        u.empreinteVector,
+        u.empreinteLegacyVector
       );
 
    let retineComparison = null;
@@ -4955,7 +5064,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   ] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_authenticated_users_v17"
+        "segvision_authenticated_users_v18"
       );
 
       return saved
@@ -4969,7 +5078,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_authenticated_users_v17",
+        "segvision_authenticated_users_v18",
         JSON.stringify(authenticatedRecords)
       );
     } catch (error) {
@@ -5060,9 +5169,10 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 
       const results = database.map(entry => {
         const empreinteComparison =
-          compareFingerprintVectors(
+          compareFingerprintTemplates(
             empreinteRes.optimizedArray,
-            entry.empreinteVector
+            entry.empreinteVector,
+            entry.empreinteLegacyVector
           );
 
         const empreinteMatch =
@@ -7759,7 +7869,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   const [database, setDatabase] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_biometric_database_v17"
+        "segvision_biometric_database_v18"
       );
 
       return saved
@@ -7812,6 +7922,13 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
           empreinteVector:
             validVector(account.empreinteVector, 6)
               ? account.empreinteVector.map(Number)
+              : null,
+          empreinteLegacyVector:
+            validVector(
+              account.empreinteLegacyVector,
+              6
+            )
+              ? account.empreinteLegacyVector.map(Number)
               : null,
           retineVector:
             validVector(account.retineVector, 5)
@@ -7870,7 +7987,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_biometric_database_v17",
+        "segvision_biometric_database_v18",
         JSON.stringify(database)
       );
     } catch (error) {
@@ -8283,3 +8400,4 @@ return {
 
   return <UtilisateurApp user={user} onLogout={() => setUser(null)} />;
 }
+
