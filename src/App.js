@@ -1,4 +1,20 @@
 /*
+ * V21 — COMPARAISON EMPREINTE ROBUSTE
+ * - Aucune modification de la segmentation
+ * - Comparaison stricte conservée
+ * - Ajout d'une comparaison structurelle
+ * - Densité, proportions et orientations obligatoirement cohérentes
+ * - Nouvelle base locale V21
+ */
+
+/*
+ * V20 — VECTEURS EMPREINTES REMPLACÉS
+ * Les empreinteVector de Camille, Tidar, Aminata, Shanice et Steven
+ * correspondent exactement aux vecteurs visibles sur les nouveaux écrans.
+ * Les empreinteLegacyVector sont conservés pour compatibilité.
+ */
+
+/*
  * V18 — DOUBLE BASE EMPREINTES
  * - Aucune modification de la segmentation
  * - Chaque compte possède le vecteur de la nouvelle segmentation
@@ -89,7 +105,195 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 // ═══════════════════════════════════════════════════════════════════════════════
 const INITIAL_USERS = {
   Ismael:    { password: "123456", role: "Administrateur", name: "Administrateur SegVision",       validated: true },
+  camille: {
+username: "camille",
+password: "Camille123",
+role: "client",
+name: "Camille",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "18/06/2026",
+retineVector: [
+6050.0000,
+1.7910,
+1.2351,
+4.3913,
+3.3588,
+],
+empreinteVector: [
+2832.0000,
+2614.0000,
+218.0000,
+388.5840,
+0.2777,
+1.9184,
+],
+empreinteLegacyVector: [
+2863.0000,
+2718.0000,
+145.0000,
+331.8266,
+0.5742,
+1.8469,
+],
+},
 
+tidar: {
+username: "tidar",
+password: "Tidar123",
+role: "client",
+name: "Tidar",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "18/06/2026",
+retineVector: [
+6744.0000,
+1.5601,
+1.1767,
+2.9420,
+2.5701,
+],
+empreinteVector: [
+4263.0000,
+4164.0000,
+99.0000,
+437.6347,
+0.7141,
+1.8607,
+],
+empreinteLegacyVector: [
+3170.0000,
+3056.0000,
+114.0000,
+483.8217,
+0.5675,
+1.8372,
+],
+},
+
+aminata: {
+username: "aminata",
+password: "Aminata123",
+role: "client",
+name: "Aminata",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "18/06/2026",
+retineVector: [
+5772.0000,
+1.5862,
+1.2659,
+4.0000,
+3.0472,
+],
+empreinteVector: [
+3998.0000,
+3921.0000,
+77.0000,
+446.5044,
+0.4268,
+1.8650,
+],
+empreinteLegacyVector: [
+3211.0000,
+3122.0000,
+89.0000,
+437.4659,
+0.4433,
+1.8417,
+],
+},
+
+shanice: {
+username: "shanice",
+password: "Shanice123",
+role: "client",
+name: "Shanice",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "18/06/2026",
+retineVector: [
+6242.0000,
+1.4898,
+1.2481,
+3.6829,
+3.0797,
+],
+empreinteVector: [
+3439.0000,
+3268.0000,
+171.0000,
+367.3753,
+1.1826,
+1.9648,
+],
+empreinteLegacyVector: [
+4631.0000,
+4549.0000,
+82.0000,
+382.7905,
+0.6141,
+1.8998,
+],
+},
+
+steven: {
+username: "steven",
+password: "Steven123",
+role: "client",
+name: "Steven",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "19/06/2026",
+retineVector: [
+6690.0000,
+1.9072,
+1.2636,
+4.7000,
+4.0632,
+],
+empreinteVector: [
+4685.0000,
+4511.0000,
+174.0000,
+476.2147,
+0.1261,
+1.8936,
+],
+empreinteLegacyVector: [
+3604.0000,
+3449.0000,
+155.0000,
+374.0529,
+0.0070,
+1.9405,
+],
+},
 };
 // ═══════════════════════════════════════════════════════════════════════════════
 // PALETTE
@@ -434,33 +638,373 @@ function compareRetinaVectors(a, b) {
 
 function compareFingerprintVectors(a, b) {
   if (!validVector(a, 6) || !validVector(b, 6)) {
-    return { match:false, similarity:0, distance:Infinity, within:0, deltas:[] };
+    return {
+      match: false,
+      similarity: 0,
+      distance: Infinity,
+      within: 0,
+      deltas: [],
+      exact: false,
+      comparisonMode: null,
+    };
   }
 
   const av = a.map(Number);
   const bv = b.map(Number);
-  const average = (x, y, floor=1e-6) => Math.max((Math.abs(x) + Math.abs(y)) / 2, floor);
 
-  const deltas = [
-    Math.abs(av[0] - bv[0]) / average(av[0], bv[0], 10) / 0.08,
-    Math.abs(av[1] - bv[1]) / average(av[1], bv[1], 10) / 0.10,
-    Math.abs(av[2] - bv[2]) / average(av[2], bv[2], 3) / 0.15,
-    Math.abs(av[3] - bv[3]) / average(av[3], bv[3], 1) / 0.08,
-    Math.abs(av[4] - bv[4]) / 0.15,
-    Math.abs(av[5] - bv[5]) / 0.15,
+  const average = (
+    x,
+    y,
+    floor = 1e-6
+  ) =>
+    Math.max(
+      (
+        Math.abs(x) +
+        Math.abs(y)
+      ) / 2,
+      floor
+    );
+
+  const relativeDifference = (
+    x,
+    y,
+    floor = 1e-6
+  ) =>
+    Math.abs(x - y) /
+    average(x, y, floor);
+
+  /*
+   * Comparaison stricte historique.
+   * Elle reste prioritaire lorsque la segmentation
+   * produit presque exactement le même vecteur.
+   */
+  const strictDeltas = [
+    relativeDifference(
+      av[0],
+      bv[0],
+      10
+    ) / 0.08,
+
+    relativeDifference(
+      av[1],
+      bv[1],
+      10
+    ) / 0.10,
+
+    relativeDifference(
+      av[2],
+      bv[2],
+      3
+    ) / 0.15,
+
+    relativeDifference(
+      av[3],
+      bv[3],
+      1
+    ) / 0.08,
+
+    Math.abs(
+      av[4] -
+      bv[4]
+    ) / 0.15,
+
+    Math.abs(
+      av[5] -
+      bv[5]
+    ) / 0.15,
   ];
 
-  const weights = [0.25, 0.18, 0.12, 0.18, 0.14, 0.13];
-  const distance = deltas.reduce(
-    (sum, delta, index) => sum + Math.min(delta, 4) * weights[index],
-    0
-  );
-  const within = deltas.filter(delta => delta <= 1).length;
-  const similarity = Math.max(0, Math.min(100, 100 * Math.exp(-0.8 * distance)));
-  const exact = av.every((value, index) => value.toFixed(4) === bv[index].toFixed(4));
-  const match = exact || (within >= 5 && distance <= 0.85 && similarity >= 50);
+  const strictWeights = [
+    0.25,
+    0.18,
+    0.12,
+    0.18,
+    0.14,
+    0.13,
+  ];
 
-  return { match, similarity, distance, within, deltas, exact };
+  const strictDistance =
+    strictDeltas.reduce(
+      (
+        sum,
+        delta,
+        index
+      ) =>
+        sum +
+        Math.min(
+          delta,
+          4
+        ) *
+          strictWeights[index],
+      0
+    );
+
+  const strictWithin =
+    strictDeltas.filter(
+      delta =>
+        delta <= 1
+    ).length;
+
+  const strictSimilarity =
+    Math.max(
+      0,
+      Math.min(
+        100,
+        100 *
+          Math.exp(
+            -0.8 *
+              strictDistance
+          )
+      )
+    );
+
+  const exact =
+    av.every(
+      (
+        value,
+        index
+      ) =>
+        value.toFixed(4) ===
+        bv[index].toFixed(4)
+    );
+
+  const strictMatch =
+    exact ||
+    (
+      strictWithin >= 5 &&
+      strictDistance <= 0.85 &&
+      strictSimilarity >= 50
+    );
+
+  /*
+   * Comparaison robuste à la nouvelle segmentation.
+   *
+   * Elle compare surtout la structure du vecteur :
+   * proportions bifurcations/terminaisons,
+   * densité et orientations.
+   *
+   * Les nombres bruts de minuties peuvent varier
+   * fortement lorsque le masque change légèrement.
+   */
+  const minutiaeA = Math.max(
+    1,
+    av[0]
+  );
+
+  const minutiaeB = Math.max(
+    1,
+    bv[0]
+  );
+
+  const bifRatioA =
+    av[1] /
+    minutiaeA;
+
+  const bifRatioB =
+    bv[1] /
+    minutiaeB;
+
+  const termRatioA =
+    av[2] /
+    minutiaeA;
+
+  const termRatioB =
+    bv[2] /
+    minutiaeB;
+
+  /*
+   * L'orientation d'une crête est axiale :
+   * un angle et cet angle + PI décrivent
+   * la même direction.
+   */
+  const axisAngleDifference = (
+    first,
+    second
+  ) => {
+    const period = Math.PI;
+
+    let difference =
+      Math.abs(
+        first -
+        second
+      ) % period;
+
+    if (
+      difference >
+      period / 2
+    ) {
+      difference =
+        period -
+        difference;
+    }
+
+    return difference;
+  };
+
+  const robustRawDeltas = [
+    relativeDifference(
+      av[0],
+      bv[0],
+      10
+    ),
+
+    Math.abs(
+      bifRatioA -
+      bifRatioB
+    ),
+
+    Math.abs(
+      termRatioA -
+      termRatioB
+    ),
+
+    relativeDifference(
+      av[3],
+      bv[3],
+      1
+    ),
+
+    axisAngleDifference(
+      av[4],
+      bv[4]
+    ),
+
+    Math.abs(
+      av[5] -
+      bv[5]
+    ),
+  ];
+
+  /*
+   * Tolérances structurelles.
+   * Elles ne correspondent pas à une baisse globale
+   * du seuil : chaque propriété garde sa limite.
+   */
+  const robustDeltas = [
+    robustRawDeltas[0] / 0.35,
+    robustRawDeltas[1] / 0.045,
+    robustRawDeltas[2] / 0.045,
+    robustRawDeltas[3] / 0.22,
+    robustRawDeltas[4] / 0.40,
+    robustRawDeltas[5] / 0.28,
+  ];
+
+  const robustWeights = [
+    0.08,
+    0.22,
+    0.14,
+    0.20,
+    0.20,
+    0.16,
+  ];
+
+  const robustDistance =
+    robustDeltas.reduce(
+      (
+        sum,
+        delta,
+        index
+      ) =>
+        sum +
+        Math.min(
+          delta,
+          4
+        ) *
+          robustWeights[index],
+      0
+    );
+
+  const robustWithin =
+    robustDeltas.filter(
+      delta =>
+        delta <= 1
+    ).length;
+
+  const robustSimilarity =
+    Math.max(
+      0,
+      Math.min(
+        100,
+        100 *
+          Math.exp(
+            -0.75 *
+              robustDistance
+          )
+      )
+    );
+
+  /*
+   * Les trois caractéristiques suivantes doivent
+   * obligatoirement rester cohérentes pour empêcher
+   * qu'une autre empreinte passe seulement grâce
+   * aux nombres de minuties.
+   */
+  const densityCompatible =
+    robustRawDeltas[3] <=
+      0.22;
+
+  const orientationCompatible =
+    robustRawDeltas[4] <=
+      0.40;
+
+  const variationCompatible =
+    robustRawDeltas[5] <=
+      0.28;
+
+  const ratiosCompatible =
+    robustRawDeltas[1] <=
+      0.045 &&
+    robustRawDeltas[2] <=
+      0.045;
+
+  const robustMatch =
+    robustWithin >= 5 &&
+    robustDistance <= 0.92 &&
+    robustSimilarity >= 52 &&
+    densityCompatible &&
+    orientationCompatible &&
+    variationCompatible &&
+    ratiosCompatible;
+
+  if (strictMatch) {
+    return {
+      match: true,
+      similarity:
+        strictSimilarity,
+      distance:
+        strictDistance,
+      within:
+        strictWithin,
+      deltas:
+        strictDeltas,
+      exact,
+      comparisonMode:
+        exact
+          ? "exacte"
+          : "stricte",
+      strictSimilarity,
+      robustSimilarity,
+    };
+  }
+
+  return {
+    match: robustMatch,
+    similarity:
+      robustSimilarity,
+    distance:
+      robustDistance,
+    within:
+      robustWithin,
+    deltas:
+      robustDeltas,
+    exact,
+    comparisonMode:
+      robustMatch
+        ? "structurelle"
+        : "aucune",
+    strictSimilarity,
+    robustSimilarity,
+  };
 }
 
 function compareFingerprintTemplates(
@@ -4876,7 +5420,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   ] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_authenticated_users_v18"
+        "segvision_authenticated_users_v21"
       );
 
       return saved
@@ -4890,7 +5434,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_authenticated_users_v18",
+        "segvision_authenticated_users_v21",
         JSON.stringify(authenticatedRecords)
       );
     } catch (error) {
@@ -7681,7 +8225,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   const [database, setDatabase] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_biometric_database_v18"
+        "segvision_biometric_database_v21"
       );
 
       return saved
@@ -7799,7 +8343,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_biometric_database_v18",
+        "segvision_biometric_database_v21",
         JSON.stringify(database)
       );
     } catch (error) {
@@ -8212,4 +8756,3 @@ return {
 
   return <UtilisateurApp user={user} onLogout={() => setUser(null)} />;
 }
-
