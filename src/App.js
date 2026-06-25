@@ -1,4 +1,10 @@
 /*
+ * V13 — SEGMENTATION EMPREINTE PAR TEXTURE
+ * Seule la segmentation d'empreinte est modifiée.
+ * Les gros blocs noirs uniformes sont explicitement rejetés.
+ */
+
+/*
  * V12 — SEGMENTATION EMPREINTE MULTI-IMAGES
  * Seule la segmentation de l'empreinte a été modifiée.
  * Gestion automatique des polarités, contrastes, fonds et épaisseurs.
@@ -1344,79 +1350,81 @@ drawH
       }
     } else {
       /*
-       * SEGMENTATION EMPREINTE MULTI-IMAGES
+       * SEGMENTATION EMPREINTE PAR TEXTURE ET CRÊTES
        *
-       * Cette branche s'adapte automatiquement à :
-       * - empreinte noire sur fond blanc ;
-       * - empreinte blanche sur fond noir ;
-       * - image sombre ou claire ;
-       * - photo couleur ;
-       * - empreinte partielle ;
-       * - fond uniforme ou avec bordure ;
-       * - crêtes fines ou épaisses.
+       * Objectif :
+       * - détecter les vraies crêtes répétitives ;
+       * - ignorer les grosses zones noires uniformes ;
+       * - fonctionner sur fond clair, sombre ou coloré ;
+       * - éviter de segmenter seulement une partie de l'image.
        *
-       * Seule la segmentation de l'empreinte est modifiée.
+       * Seule cette branche empreinte est modifiée.
        */
 
-      const localGray = buildLocalStats(
+      const localSmall = buildLocalStats(
         gray,
-        9
+        4
+      );
+
+      const localLarge = buildLocalStats(
+        gray,
+        12
       );
 
       /*
-       * Détection automatique de la zone utile par texture.
-       * On ne dépend plus seulement de la luminosité,
-       * ce qui permet de traiter les fonds noirs et blancs.
+       * Zone utile basée sur la texture locale.
+       * Une empreinte contient beaucoup de variations fines,
+       * contrairement à une grande tache noire uniforme.
        */
       const textureValues = [];
 
       for (let i = 0; i < N; i++) {
         textureValues.push(
-          localGray.std[i]
+          localSmall.std[i]
         );
       }
 
       const textureThreshold = Math.max(
-        0.012,
+        0.010,
         percentile(
           textureValues,
-          0.38
+          0.32
         )
       );
 
       const roiCandidate =
         new Uint8Array(N);
 
-      for (let y = 4; y < H - 4; y++) {
-        for (let x = 4; x < W - 4; x++) {
+      for (let y = 6; y < H - 6; y++) {
+        for (let x = 6; x < W - 6; x++) {
           const i = y * W + x;
 
+          /*
+           * On conserve uniquement les zones présentant
+           * une vraie texture locale.
+           */
           roiCandidate[i] =
-            localGray.std[i] >=
+            localSmall.std[i] >=
               textureThreshold
               ? 1
               : 0;
         }
       }
 
-      let roi = largestConnectedComponent(
-        binaryClose(
-          roiCandidate,
-          3
-        )
-      );
-
-      roi = fillHoles(roi);
-      roi = binaryErode(
-        roi,
+      let roi = binaryClose(
+        roiCandidate,
         2
       );
 
+      roi = removeSmallComponents(
+        roi,
+        80
+      );
+
       /*
-       * Repli sécurisé si l'empreinte est très lisse
-       * ou si le contraste est faible.
+       * Repli sécurisé si l'image est peu contrastée.
        */
-      if (countMask(roi) < N * 0.10) {
+      if (countMask(roi) < N * 0.08) {
         roi = new Uint8Array(N);
 
         for (let y = 8; y < H - 8; y++) {
@@ -1434,14 +1442,14 @@ drawH
       );
 
       /*
-       * Deux polarités sont calculées :
-       * 1) crêtes sombres sur fond clair ;
-       * 2) crêtes claires sur fond sombre.
+       * Bande passante multi-échelle :
+       * met en évidence les lignes fines répétitives
+       * sans conserver les grandes masses uniformes.
        */
-      const darkRidgeScore =
+      const bandPassDark =
         new Float32Array(N);
 
-      const lightRidgeScore =
+      const bandPassLight =
         new Float32Array(N);
 
       const invertedGray =
@@ -1450,64 +1458,16 @@ drawH
       for (let i = 0; i < N; i++) {
         invertedGray[i] =
           1 - gray[i];
-
-        if (!roi[i]) continue;
-
-        const std = Math.max(
-          0.015,
-          localGray.std[i]
-        );
-
-        const darkZ =
-          (
-            localGray.mean[i] -
-            gray[i]
-          ) / std;
-
-        const lightZ =
-          (
-            gray[i] -
-            localGray.mean[i]
-          ) / std;
-
-        darkRidgeScore[i] =
-          Math.min(
-            1,
-            Math.max(
-              0,
-              darkZ / 1.8
-            )
-          );
-
-        lightRidgeScore[i] =
-          Math.min(
-            1,
-            Math.max(
-              0,
-              lightZ / 1.8
-            )
-          );
       }
-
-      /*
-       * Renforcement multi-échelle pour récupérer
-       * aussi bien les crêtes fines que les crêtes épaisses.
-       */
-      const darkDog =
-        new Float32Array(N);
-
-      const lightDog =
-        new Float32Array(N);
 
       for (
         const sigma of [
           0.55,
           0.8,
-          1.1,
-          1.5,
-          2.0,
-          2.7,
-          3.4,
+          1.05,
+          1.35,
+          1.7,
+          2.1,
         ]
       ) {
         const darkFine = gauss(
@@ -1517,7 +1477,7 @@ drawH
 
         const darkCoarse = gauss(
           invertedGray,
-          sigma * 2.3
+          sigma * 2.6
         );
 
         const lightFine = gauss(
@@ -1527,7 +1487,7 @@ drawH
 
         const lightCoarse = gauss(
           gray,
-          sigma * 2.3
+          sigma * 2.6
         );
 
         for (let i = 0; i < N; i++) {
@@ -1549,61 +1509,134 @@ drawH
 
           if (
             darkResponse >
-            darkDog[i]
+            bandPassDark[i]
           ) {
-            darkDog[i] =
+            bandPassDark[i] =
               darkResponse;
           }
 
           if (
             lightResponse >
-            lightDog[i]
+            bandPassLight[i]
           ) {
-            lightDog[i] =
+            bandPassLight[i] =
               lightResponse;
           }
         }
       }
 
-      const darkDogValues = [];
-      const lightDogValues = [];
+      /*
+       * Contraste local normalisé.
+       * Une vraie crête doit être différente de son voisinage,
+       * mais aussi se trouver dans une zone texturée.
+       */
+      const darkLocal =
+        new Float32Array(N);
+
+      const lightLocal =
+        new Float32Array(N);
+
+      const textureWeight =
+        new Float32Array(N);
+
+      const textureScale = Math.max(
+        1e-5,
+        percentile(
+          textureValues,
+          0.92
+        )
+      );
 
       for (let i = 0; i < N; i++) {
         if (!roi[i]) continue;
 
-        if (darkDog[i] > 0) {
-          darkDogValues.push(
-            darkDog[i]
+        const texture = Math.min(
+          1,
+          localSmall.std[i] /
+            textureScale
+        );
+
+        textureWeight[i] =
+          texture;
+
+        const reference =
+          localLarge.mean[i];
+
+        const spread = Math.max(
+          0.018,
+          localLarge.std[i]
+        );
+
+        const darkZ =
+          (
+            reference -
+            gray[i]
+          ) / spread;
+
+        const lightZ =
+          (
+            gray[i] -
+            reference
+          ) / spread;
+
+        darkLocal[i] =
+          Math.min(
+            1,
+            Math.max(
+              0,
+              darkZ / 2.0
+            )
+          ) * texture;
+
+        lightLocal[i] =
+          Math.min(
+            1,
+            Math.max(
+              0,
+              lightZ / 2.0
+            )
+          ) * texture;
+      }
+
+      const darkBandValues = [];
+      const lightBandValues = [];
+
+      for (let i = 0; i < N; i++) {
+        if (!roi[i]) continue;
+
+        if (bandPassDark[i] > 0) {
+          darkBandValues.push(
+            bandPassDark[i]
           );
         }
 
-        if (lightDog[i] > 0) {
-          lightDogValues.push(
-            lightDog[i]
+        if (bandPassLight[i] > 0) {
+          lightBandValues.push(
+            bandPassLight[i]
           );
         }
       }
 
-      const darkScale = Math.max(
+      const darkBandScale = Math.max(
         1e-5,
         percentile(
-          darkDogValues,
-          0.97
+          darkBandValues,
+          0.96
         )
       );
 
-      const lightScale = Math.max(
+      const lightBandScale = Math.max(
         1e-5,
         percentile(
-          lightDogValues,
-          0.97
+          lightBandValues,
+          0.96
         )
       );
 
-      const buildFingerprintMask = (
+      const buildMask = (
         localScore,
-        dogScore,
-        dogScale
+        bandScore,
+        bandScale
       ) => {
         const score =
           new Float32Array(N);
@@ -1613,18 +1646,28 @@ drawH
         for (let i = 0; i < N; i++) {
           if (!roi[i]) continue;
 
-          const dogNormalized =
+          const normalizedBand =
             Math.min(
               1,
-              dogScore[i] /
-                dogScale
+              bandScore[i] /
+                bandScale
             );
 
+          /*
+           * Le score dépend surtout de la bande passante,
+           * ce qui élimine les grandes zones noires pleines.
+           */
           score[i] =
-            0.76 *
-              localScore[i] +
-            0.24 *
-              dogNormalized;
+            (
+              0.35 *
+                localScore[i] +
+              0.65 *
+                normalizedBand
+            ) *
+            Math.max(
+              0.25,
+              textureWeight[i]
+            );
 
           values.push(
             score[i]
@@ -1633,12 +1676,12 @@ drawH
 
         let high = percentile(
           values,
-          0.58
+          0.68
         );
 
         let low = percentile(
           values,
-          0.33
+          0.46
         );
 
         let mask = hysteresis(
@@ -1652,15 +1695,15 @@ drawH
           countMask(mask) /
           roiArea;
 
-        if (density < 0.10) {
+        if (density < 0.07) {
           high = percentile(
             values,
-            0.49
+            0.60
           );
 
           low = percentile(
             values,
-            0.24
+            0.38
           );
 
           mask = hysteresis(
@@ -1669,15 +1712,15 @@ drawH
             low,
             high
           );
-        } else if (density > 0.52) {
+        } else if (density > 0.34) {
           high = percentile(
             values,
-            0.69
+            0.76
           );
 
           low = percentile(
             values,
-            0.47
+            0.57
           );
 
           mask = hysteresis(
@@ -1688,38 +1731,51 @@ drawH
           );
         }
 
+        /*
+         * Fermeture légère uniquement.
+         * On évite de remplir les espaces entre les crêtes.
+         */
         mask = binaryClose(
           mask,
           1
         );
 
-        return removeSmallComponents(
+        mask = removeSmallComponents(
           mask,
-          5
+          4
         );
+
+        for (let i = 0; i < N; i++) {
+          mask[i] =
+            mask[i] && roi[i]
+              ? 1
+              : 0;
+        }
+
+        return mask;
       };
 
       const darkMask =
-        buildFingerprintMask(
-          darkRidgeScore,
-          darkDog,
-          darkScale
+        buildMask(
+          darkLocal,
+          bandPassDark,
+          darkBandScale
         );
 
       const lightMask =
-        buildFingerprintMask(
-          lightRidgeScore,
-          lightDog,
-          lightScale
+        buildMask(
+          lightLocal,
+          bandPassLight,
+          lightBandScale
         );
 
       /*
-       * Sélection automatique de la meilleure polarité.
-       *
-       * On privilégie une densité réaliste de crêtes
-       * et une couverture suffisante de la zone utile.
+       * Évaluation de la qualité d'un masque :
+       * - couverture verticale et horizontale ;
+       * - densité compatible avec des crêtes ;
+       * - pénalité pour les gros blocs pleins.
        */
-      const scoreMask = mask => {
+      const evaluateMask = mask => {
         const count =
           countMask(mask);
 
@@ -1728,35 +1784,45 @@ drawH
 
         let rowsWithData = 0;
         let colsWithData = 0;
+        let maxRowDensity = 0;
+        let maxColDensity = 0;
 
         for (let y = 0; y < H; y++) {
-          let found = false;
+          let rowCount = 0;
 
           for (let x = 0; x < W; x++) {
             if (mask[y * W + x]) {
-              found = true;
-              break;
+              rowCount++;
             }
           }
 
-          if (found) {
+          if (rowCount > 0) {
             rowsWithData++;
           }
+
+          maxRowDensity = Math.max(
+            maxRowDensity,
+            rowCount / W
+          );
         }
 
         for (let x = 0; x < W; x++) {
-          let found = false;
+          let colCount = 0;
 
           for (let y = 0; y < H; y++) {
             if (mask[y * W + x]) {
-              found = true;
-              break;
+              colCount++;
             }
           }
 
-          if (found) {
+          if (colCount > 0) {
             colsWithData++;
           }
+
+          maxColDensity = Math.max(
+            maxColDensity,
+            colCount / H
+          );
         }
 
         const coverage =
@@ -1765,36 +1831,38 @@ drawH
             colsWithData / W
           ) / 2;
 
-        const densityTarget =
-          0.27;
-
         const densityPenalty =
           Math.abs(
             density -
-              densityTarget
+              0.16
+          );
+
+        /*
+         * Un gros bloc noir donne des lignes ou colonnes
+         * presque entièrement remplies : forte pénalité.
+         */
+        const blockPenalty =
+          Math.max(
+            0,
+            maxRowDensity - 0.55
+          ) +
+          Math.max(
+            0,
+            maxColDensity - 0.55
           );
 
         return (
-          coverage * 2 -
-          densityPenalty
+          coverage * 2.2 -
+          densityPenalty * 2.5 -
+          blockPenalty * 3.0
         );
       };
 
       clean =
-        scoreMask(darkMask) >=
-        scoreMask(lightMask)
+        evaluateMask(darkMask) >=
+        evaluateMask(lightMask)
           ? darkMask
           : lightMask;
-
-      /*
-       * Nettoyage final hors ROI.
-       */
-      for (let i = 0; i < N; i++) {
-        clean[i] =
-          clean[i] && roi[i]
-            ? 1
-            : 0;
-      }
     }
 
     // Création de l'image du masque.
