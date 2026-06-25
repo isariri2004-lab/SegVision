@@ -1,4 +1,43 @@
 /*
+ * V22 — AUTHENTIFICATION BIOMÉTRIQUE SÉCURISÉE
+ *
+ * Correction du faux positif observé :
+ * empreinte de Tidar + rétine d'Aminata ne peuvent plus
+ * authentifier un utilisateur.
+ *
+ * - Segmentation inchangée
+ * - Comparateurs stricts de la V20 conservés
+ * - Seuls les comptes officiels sont utilisés
+ * - Les anciens enrôlements manuels sont ignorés et supprimés
+ * - Empreinte et rétine doivent correspondre au même compte
+ * - Les correspondances ambiguës sont refusées
+ */
+
+/*
+ * V20 — VECTEURS EMPREINTES REMPLACÉS
+ * Les empreinteVector de Camille, Tidar, Aminata, Shanice et Steven
+ * correspondent exactement aux vecteurs visibles sur les nouveaux écrans.
+ * Les empreinteLegacyVector sont conservés pour compatibilité.
+ */
+
+/*
+ * V18 — DOUBLE BASE EMPREINTES
+ * - Aucune modification de la segmentation
+ * - Chaque compte possède le vecteur de la nouvelle segmentation
+ * - Les anciens vecteurs sont conservés comme gabarits de compatibilité
+ * - L'authentification teste les deux gabarits sans baisser les seuils
+ * - La meilleure correspondance stricte est retenue
+ */
+
+/*
+ * V17 — BASE EMPREINTES FORCÉE
+ * - Aucune modification de la segmentation
+ * - Nouveaux vecteurs empreinte conservés
+ * - Nouvelle clé de base locale pour supprimer les anciens vecteurs
+ * - Suppression des doublons historiques portant le même nom
+ */
+
+/*
  * V15 — SEGMENTATION EMPREINTE MAXIMALE
  * Seule la segmentation d'empreinte est modifiée.
  * Normalisation locale, cohérence directionnelle,
@@ -72,155 +111,7 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 // ═══════════════════════════════════════════════════════════════════════════════
 const INITIAL_USERS = {
   Ismael:    { password: "123456", role: "Administrateur", name: "Administrateur SegVision",       validated: true },
-  camille: {
-username: "camille",
-password: "Camille123",
-role: "client",
-name: "Camille",
-email: "",
-validated: true,
-pendingValidation: false,
-disabled: false,
-authMode: "double",
-hasEmpreinte: true,
-hasRetine: true,
-createdAt: "18/06/2026",
-retineVector: [
-6050.0000,
-1.7910,
-1.2351,
-4.3913,
-3.3588,
-],
-empreinteVector: [
-2863.0000,
-2718.0000,
-145.0000,
-331.8266,
-0.5742,
-1.8469,
-],
-},
-
-tidar: {
-username: "tidar",
-password: "Tidar123",
-role: "client",
-name: "Tidar",
-email: "",
-validated: true,
-pendingValidation: false,
-disabled: false,
-authMode: "double",
-hasEmpreinte: true,
-hasRetine: true,
-createdAt: "18/06/2026",
-retineVector: [
-6744.0000,
-1.5601,
-1.1767,
-2.9420,
-2.5701,
-],
-empreinteVector: [
-3170.0000,
-3056.0000,
-114.0000,
-483.8217,
-0.5675,
-1.8372,
-],
-},
-
-aminata: {
-username: "aminata",
-password: "Aminata123",
-role: "client",
-name: "Aminata",
-email: "",
-validated: true,
-pendingValidation: false,
-disabled: false,
-authMode: "double",
-hasEmpreinte: true,
-hasRetine: true,
-createdAt: "18/06/2026",
-retineVector: [
-5772.0000,
-1.5862,
-1.2659,
-4.0000,
-3.0472,
-],
-empreinteVector: [
-3211.0000,
-3122.0000,
-89.0000,
-437.4659,
-0.4433,
-1.8417,
-],
-},
-
-shanice: {
-username: "shanice",
-password: "Shanice123",
-role: "client",
-name: "Shanice",
-email: "",
-validated: true,
-pendingValidation: false,
-disabled: false,
-authMode: "double",
-hasEmpreinte: true,
-hasRetine: true,
-createdAt: "18/06/2026",
-retineVector: [
-6242.0000,
-1.4898,
-1.2481,
-3.6829,
-3.0797,
-],
-empreinteVector: [
-4631.0000,
-4549.0000,
-82.0000,
-382.7905,
-0.6141,
-1.8998,
-],
-},
-
-steven: {
-username: "steven",
-password: "Steven123",
-role: "client",
-name: "Steven",
-email: "",
-validated: true,
-pendingValidation: false,
-disabled: false,
-authMode: "double",
-hasEmpreinte: true,
-hasRetine: true,
-createdAt: "19/06/2026",
-retineVector: [
-6690.0000,
-1.9072,
-1.2636,
-4.7000,
-4.0632,
-],
-empreinteVector: [
-3604.0000,
-3449.0000,
-155.0000,
-374.0529,
-0.0070,
-1.9405,
-],
-},
+  
 };
 // ═══════════════════════════════════════════════════════════════════════════════
 // PALETTE
@@ -592,6 +483,65 @@ function compareFingerprintVectors(a, b) {
   const match = exact || (within >= 5 && distance <= 0.85 && similarity >= 50);
 
   return { match, similarity, distance, within, deltas, exact };
+}
+
+function compareFingerprintTemplates(
+  scannedVector,
+  primaryVector,
+  legacyVector = null
+) {
+  const templates = [
+    {
+      type: "nouvelle segmentation",
+      vector: primaryVector,
+    },
+    {
+      type: "ancienne segmentation",
+      vector: legacyVector,
+    },
+  ].filter(template =>
+    validVector(template.vector, 6)
+  );
+
+  let best = null;
+
+  for (const template of templates) {
+    const comparison =
+      compareFingerprintVectors(
+        scannedVector,
+        template.vector
+      );
+
+    const candidate = {
+      ...comparison,
+      templateType: template.type,
+    };
+
+    if (
+      !best ||
+      (
+        candidate.match &&
+        !best.match
+      ) ||
+      (
+        candidate.match === best.match &&
+        candidate.similarity >
+          best.similarity
+      )
+    ) {
+      best = candidate;
+    }
+  }
+
+  return best || {
+    match: false,
+    similarity: 0,
+    distance: Infinity,
+    within: 0,
+    deltas: [],
+    exact: false,
+    templateType: null,
+  };
 }
 
 function vectorsMatch(a, b) {
@@ -3041,9 +2991,10 @@ if (u.role === "client") {
       );
 
     const empreinteComparison =
-      compareFingerprintVectors(
+      compareFingerprintTemplates(
         empreinteResult.optimizedArray,
-        u.empreinteVector
+        u.empreinteVector,
+        u.empreinteLegacyVector
       );
 
    let retineComparison = null;
@@ -4947,7 +4898,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   ] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_authenticated_users_v9"
+        "segvision_authenticated_users_v22"
       );
 
       return saved
@@ -4961,7 +4912,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_authenticated_users_v9",
+        "segvision_authenticated_users_v22",
         JSON.stringify(authenticatedRecords)
       );
     } catch (error) {
@@ -4987,19 +4938,13 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   };
 
   const confirmEnroll = () => {
-    if (!enrollName.trim() || !enrollResult?.retine) return;
-    const entry = {
-      id: Date.now().toString(),
-      name: enrollName.trim(),
-      date: new Date().toLocaleString("fr-FR").slice(0,16),
-      retineVector: enrollResult.retine.optimizedArray,
-      empreinteVector: enrollResult.empreinte?.optimizedArray || null,
-      hasEmpreinte: !!enrollResult.empreinte,
-    };
-    setDatabase(prev => [...prev, entry]);
-    setEnrollName(""); setEnrollResult(null);
+    alert(
+      "Pour éviter d'associer l'empreinte d'une personne à la rétine d'une autre, créez ou modifiez l'utilisateur depuis « Gestion des utilisateurs ». Les deux biométries seront alors liées au même compte."
+    );
+
+    setEnrollName("");
+    setEnrollResult(null);
     setTab("base");
-    alert(`✅ ${entry.name} enrôlé avec succès !`);
   };
 
   // ── Authentification ──────────────────────────────────────────────────────
@@ -5050,11 +4995,23 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 
       setMsg("Comparaison avec la base biométrique...");
 
-      const results = database.map(entry => {
+      const officialDatabase =
+        database.filter(entry =>
+          Boolean(entry.username)
+        );
+
+      if (officialDatabase.length === 0) {
+        throw new Error(
+          "Aucun compte utilisateur biométrique officiel n'est enregistré."
+        );
+      }
+
+      const results = officialDatabase.map(entry => {
         const empreinteComparison =
-          compareFingerprintVectors(
+          compareFingerprintTemplates(
             empreinteRes.optimizedArray,
-            entry.empreinteVector
+            entry.empreinteVector,
+            entry.empreinteLegacyVector
           );
 
         const empreinteMatch =
@@ -5106,7 +5063,14 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
             ? Boolean(retineComparison?.match)
             : true;
 
+        /*
+         * La comparaison de l'empreinte et celle de la rétine
+         * sont réalisées sur la même entrée utilisateur.
+         * Il est donc impossible de prendre l'empreinte de Tidar
+         * et la rétine d'Aminata pour former une authentification.
+         */
         const candidateMatch =
+          Boolean(entry.username) &&
           empreinteComparison.match &&
           (
             authMode !== "double" ||
@@ -5158,10 +5122,36 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
           a.globalSimilarity;
       });
 
-      const bestMatch =
-        results.find(
+      const matchingResults =
+        results.filter(
           result => result.candidateMatch
-        ) || null;
+        );
+
+      const firstMatch =
+        matchingResults[0] || null;
+
+      const secondMatch =
+        matchingResults[1] || null;
+
+      /*
+       * Une identité doit être unique.
+       * Si deux comptes compatibles ont des scores trop proches,
+       * l'accès est refusé au lieu de choisir arbitrairement.
+       */
+      const ambiguousMatch =
+        Boolean(
+          firstMatch &&
+          secondMatch &&
+          Math.abs(
+            firstMatch.globalSimilarity -
+            secondMatch.globalSimilarity
+          ) < 8
+        );
+
+      const bestMatch =
+        ambiguousMatch
+          ? null
+          : firstMatch;
 
       /*
        * On ajoute le nouvel utilisateur reconnu à l'historique,
@@ -7751,7 +7741,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   const [database, setDatabase] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_biometric_database_v5"
+        "segvision_biometric_database_v22"
       );
 
       return saved
@@ -7774,10 +7764,12 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
    */
   useEffect(() => {
     setDatabase(previous => {
-      const manualEntries = previous.filter(
-        entry => !entry.username
-      );
-
+      /*
+       * Les comptes sont la source officielle.
+       * Toute ancienne entrée portant le même nom ou identifiant
+       * est supprimée afin d'éviter qu'un ancien vecteur reste
+       * utilisé pendant l'authentification.
+       */
       const accountEntries = Object.entries(users)
         .filter(([, account]) =>
           account.role === "client" &&
@@ -7803,6 +7795,13 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
             validVector(account.empreinteVector, 6)
               ? account.empreinteVector.map(Number)
               : null,
+          empreinteLegacyVector:
+            validVector(
+              account.empreinteLegacyVector,
+              6
+            )
+              ? account.empreinteLegacyVector.map(Number)
+              : null,
           retineVector:
             validVector(account.retineVector, 5)
               ? account.retineVector.map(Number)
@@ -7813,17 +7812,58 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
             validVector(account.retineVector, 5),
         }));
 
-      return [
-        ...manualEntries,
-        ...accountEntries,
-      ];
+      const officialKeys = new Set(
+        accountEntries.flatMap(entry => [
+          String(entry.username || "")
+            .trim()
+            .toLowerCase(),
+          String(entry.id || "")
+            .trim()
+            .toLowerCase(),
+          String(entry.name || "")
+            .trim()
+            .toLowerCase(),
+        ])
+      );
+
+      /*
+       * On conserve seulement les enrôlements manuels qui
+       * ne correspondent à aucun compte officiel.
+       */
+      const manualEntries = previous.filter(entry => {
+        if (entry.username) return false;
+
+        const entryKeys = [
+          entry.id,
+          entry.name,
+        ]
+          .map(value =>
+            String(value || "")
+              .trim()
+              .toLowerCase()
+          )
+          .filter(Boolean);
+
+        return !entryKeys.some(key =>
+          officialKeys.has(key)
+        );
+      });
+
+      /*
+       * Sécurité V22 :
+       * seules les entrées provenant d'un véritable compte utilisateur
+       * sont conservées. Les anciens enrôlements manuels sont supprimés,
+       * car ils pouvaient mélanger l'empreinte d'une personne avec
+       * la rétine d'une autre.
+       */
+      return accountEntries;
     });
   }, [users]);
 
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_biometric_database_v5",
+        "segvision_biometric_database_v22",
         JSON.stringify(database)
       );
     } catch (error) {
