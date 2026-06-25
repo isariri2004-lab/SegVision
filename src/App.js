@@ -1,4 +1,10 @@
 /*
+ * V11 — SEGMENTATION EMPREINTE AMÉLIORÉE
+ * Seule la branche de segmentation de l'empreinte a été modifiée.
+ * Toutes les autres fonctions du site restent identiques à la V10.
+ */
+
+/*
  * V10 — CORRECTION COMPARAISON DES ROTATIONS
  * - Suppression de l'ancienne fonction locale utilisant flipH sans le définir
  * - Réutilisation du moteur global rotateRetinaForLogin
@@ -1331,75 +1337,156 @@ drawH
         clean[i] = clean[i] && fov[i] ? 1 : 0;
       }
     } else {
-      // Segmentation de l'empreinte digitale.
-      const localGray = buildLocalStats(gray, 10);
-      const stdValues = [];
+      /*
+       * SEGMENTATION EMPREINTE AMÉLIORÉE
+       *
+       * Cette partie uniquement a été modifiée.
+       * Le traitement de la rétine, les rotations,
+       * les comptes et l'authentification restent inchangés.
+       */
 
-      for (let i = 0; i < N; i++) {
-        if (luminance[i] > 0.02) {
-          stdValues.push(localGray.std[i]);
-        }
-      }
-
-      const varianceThreshold = Math.max(
-        0.025,
-        percentile(stdValues, 0.48)
+      /*
+       * Statistiques locales utilisées pour détecter
+       * les crêtes sombres par rapport à leur voisinage.
+       */
+      const localGray = buildLocalStats(
+        gray,
+        8
       );
 
-      const roiCandidate = new Uint8Array(N);
+      /*
+       * Construction de la zone utile de l'empreinte.
+       *
+       * On détecte d'abord toute la surface réellement
+       * occupée par l'image, puis on remplit les crêtes
+       * noires qui apparaissent comme des trous.
+       *
+       * Cela évite de ne segmenter que le haut de l'image.
+       */
+      const supportCandidate =
+        new Uint8Array(N);
 
       for (let i = 0; i < N; i++) {
-        roiCandidate[i] =
-          luminance[i] > 0.02 &&
-          localGray.std[i] >= varianceThreshold
+        const r = raw[i * 4] / 255;
+        const g = raw[i * 4 + 1] / 255;
+        const b = raw[i * 4 + 2] / 255;
+
+        const maxChannel =
+          Math.max(r, g, b);
+
+        supportCandidate[i] =
+          maxChannel > 0.055
             ? 1
             : 0;
       }
 
-      let roi = largestConnectedComponent(roiCandidate);
+      let roi =
+        largestConnectedComponent(
+          supportCandidate
+        );
 
-      if (countMask(roi) < N * 0.12) {
+      /*
+       * Les crêtes noires internes sont intégrées
+       * dans la zone utile.
+       */
+      roi = fillHoles(
+        binaryClose(
+          roi,
+          4
+        )
+      );
+
+      /*
+       * Retrait léger des bords pour ne pas détecter
+       * le cadre ou les limites de l'image.
+       */
+      roi = binaryErode(
+        roi,
+        2
+      );
+
+      /*
+       * Si l'image ne possède pas de fond suffisamment
+       * clair, on utilise tout le cadre intérieur.
+       */
+      if (countMask(roi) < N * 0.18) {
         roi = new Uint8Array(N);
 
-        for (let y = 12; y < H - 12; y++) {
-          for (let x = 12; x < W - 12; x++) {
+        for (let y = 8; y < H - 8; y++) {
+          for (let x = 8; x < W - 8; x++) {
             roi[y * W + x] = 1;
           }
         }
-      } else {
-        roi = fillHoles(binaryClose(roi, 5));
-        roi = binaryErode(roi, 5);
       }
 
       analysisRoi = roi;
 
-      const roiArea = Math.max(1, countMask(roi));
-      const ridgeLocal = new Float32Array(N);
-      const invertedGray = new Float32Array(N);
+      const roiArea = Math.max(
+        1,
+        countMask(roi)
+      );
+
+      /*
+       * Score principal :
+       * une crête est plus sombre que la moyenne locale.
+       */
+      const localRidge =
+        new Float32Array(N);
+
+      const invertedGray =
+        new Float32Array(N);
 
       for (let i = 0; i < N; i++) {
-        invertedGray[i] = 1 - gray[i];
+        invertedGray[i] =
+          1 - gray[i];
 
         if (!roi[i]) continue;
 
-        const z =
-          (localGray.mean[i] - gray[i]) /
-          Math.max(0.025, localGray.std[i]);
+        const localDifference =
+          localGray.mean[i] -
+          gray[i];
 
-        ridgeLocal[i] = Math.min(
+        const normalizedDifference =
+          localDifference /
+          Math.max(
+            0.018,
+            localGray.std[i]
+          );
+
+        localRidge[i] = Math.min(
           1,
-          Math.max(0, z / 2.5)
+          Math.max(
+            0,
+            normalizedDifference / 1.7
+          )
         );
       }
 
-      // Différence de Gaussiennes multi-échelle.
-      const dog = new Float32Array(N);
+      /*
+       * Différence de Gaussiennes multi-échelle :
+       * renforce les crêtes fines et épaisses.
+       */
+      const dog =
+        new Float32Array(N);
 
-      for (const sigma of [0.7, 1.0, 1.4, 1.9]) {
-        const fine = gauss(invertedGray, sigma);
+      for (
+        const sigma of [
+          0.55,
+          0.8,
+          1.1,
+          1.5,
+          2.0,
+          2.6,
+        ]
+      ) {
+        const fine = gauss(
+          invertedGray,
+          sigma
+        );
+
         const coarse = gauss(
           invertedGray,
-          sigma * 2.2
+          sigma * 2.4
         );
 
         for (let i = 0; i < N; i++) {
@@ -1426,29 +1513,52 @@ drawH
 
       const dogScale = Math.max(
         1e-5,
-        percentile(dogValues, 0.98)
+        percentile(
+          dogValues,
+          0.97
+        )
       );
 
-      const ridgeScore = new Float32Array(N);
+      /*
+       * Score final :
+       * priorité au contraste local, complété par DoG.
+       */
+      const ridgeScore =
+        new Float32Array(N);
+
       const scoreValues = [];
 
       for (let i = 0; i < N; i++) {
         if (!roi[i]) continue;
 
-        const normalizedDog = Math.min(
-          1,
-          dog[i] / dogScale
-        );
+        const normalizedDog =
+          Math.min(
+            1,
+            dog[i] / dogScale
+          );
 
         ridgeScore[i] =
-          0.68 * ridgeLocal[i] +
-          0.32 * normalizedDog;
+          0.78 * localRidge[i] +
+          0.22 * normalizedDog;
 
-        scoreValues.push(ridgeScore[i]);
+        scoreValues.push(
+          ridgeScore[i]
+        );
       }
 
-      let high = percentile(scoreValues, 0.66);
-      let low = percentile(scoreValues, 0.49);
+      /*
+       * Seuils plus souples pour récupérer les crêtes
+       * sur toute la hauteur de l'empreinte.
+       */
+      let high = percentile(
+        scoreValues,
+        0.57
+      );
+
+      let low = percentile(
+        scoreValues,
+        0.34
+      );
 
       let mask = hysteresis(
         ridgeScore,
@@ -1457,11 +1567,23 @@ drawH
         high
       );
 
-      let density = countMask(mask) / roiArea;
+      let density =
+        countMask(mask) /
+        roiArea;
 
-      if (density < 0.16) {
-        high = percentile(scoreValues, 0.60);
-        low = percentile(scoreValues, 0.43);
+      /*
+       * Ajustement automatique selon la densité obtenue.
+       */
+      if (density < 0.12) {
+        high = percentile(
+          scoreValues,
+          0.49
+        );
+
+        low = percentile(
+          scoreValues,
+          0.27
+        );
 
         mask = hysteresis(
           ridgeScore,
@@ -1469,9 +1591,16 @@ drawH
           low,
           high
         );
-      } else if (density > 0.46) {
-        high = percentile(scoreValues, 0.73);
-        low = percentile(scoreValues, 0.58);
+      } else if (density > 0.48) {
+        high = percentile(
+          scoreValues,
+          0.66
+        );
+
+        low = percentile(
+          scoreValues,
+          0.45
+        );
 
         mask = hysteresis(
           ridgeScore,
@@ -1481,11 +1610,28 @@ drawH
         );
       }
 
-      mask = binaryClose(mask, 1);
-      clean = removeSmallComponents(mask, 12);
+      /*
+       * Ferme les petites coupures entre portions
+       * d'une même crête sans trop épaissir le masque.
+       */
+      mask = binaryClose(
+        mask,
+        1
+      );
 
+      clean = removeSmallComponents(
+        mask,
+        6
+      );
+
+      /*
+       * Suppression des pixels hors empreinte.
+       */
       for (let i = 0; i < N; i++) {
-        clean[i] = clean[i] && roi[i] ? 1 : 0;
+        clean[i] =
+          clean[i] && roi[i]
+            ? 1
+            : 0;
       }
     }
 
