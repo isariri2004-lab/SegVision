@@ -1,4 +1,11 @@
 /*
+ * V15 — SEGMENTATION EMPREINTE MAXIMALE
+ * Seule la segmentation d'empreinte est modifiée.
+ * Normalisation locale, cohérence directionnelle,
+ * multi-échelle, anti-cadre et anti-blocs uniformes.
+ */
+
+/*
  * V14 — SEGMENTATION EMPREINTE SANS CADRE
  * Seule la segmentation d'empreinte est modifiée.
  * Le cadre est supprimé par marge, masque elliptique et pénalité de bord.
@@ -1356,77 +1363,260 @@ drawH
       }
     } else {
       /*
-       * SEGMENTATION EMPREINTE V14
+       * SEGMENTATION EMPREINTE V15 — RENFORCEMENT MAXIMAL
        *
-       * Objectifs :
-       * - détecter les crêtes sur toute l'empreinte ;
-       * - supprimer le cadre rectangulaire ;
-       * - rejeter les grandes masses uniformes ;
-       * - fonctionner sur fond clair, sombre ou coloré.
+       * Cette branche combine :
+       * - normalisation locale du contraste ;
+       * - détection automatique de polarité ;
+       * - estimation de cohérence directionnelle ;
+       * - filtre multi-échelle pour crêtes fines/épaisses ;
+       * - exclusion stricte du cadre ;
+       * - suppression des masses uniformes ;
+       * - nettoyage morphologique contrôlé.
        *
-       * Seule la branche empreinte est modifiée.
+       * Seule la segmentation d'empreinte est modifiée.
        */
 
-      const localSmall = buildLocalStats(
-        gray,
-        4
-      );
-
-      const localMedium = buildLocalStats(
-        gray,
-        8
-      );
-
-      const localLarge = buildLocalStats(
-        gray,
-        14
-      );
-
-      /*
-       * Marge de sécurité :
-       * le cadre de l'image est toujours exclu.
-       */
       const borderMargin = Math.max(
-        18,
+        22,
         Math.round(
-          Math.min(W, H) * 0.045
+          Math.min(W, H) * 0.055
         )
       );
 
       /*
-       * Détection de la zone texturée de l'empreinte.
+       * Statistiques locales multi-échelles.
+       */
+      const localSmall = buildLocalStats(
+        gray,
+        3
+      );
+
+      const localMedium = buildLocalStats(
+        gray,
+        7
+      );
+
+      const localLarge = buildLocalStats(
+        gray,
+        15
+      );
+
+      /*
+       * Normalisation locale du contraste.
+       * Une empreinte sombre, claire ou faiblement contrastée
+       * est ramenée vers une représentation comparable.
+       */
+      const normalized =
+        new Float32Array(N);
+
+      const invertedNormalized =
+        new Float32Array(N);
+
+      for (let i = 0; i < N; i++) {
+        const z =
+          (
+            gray[i] -
+            localLarge.mean[i]
+          ) /
+          Math.max(
+            0.012,
+            localLarge.std[i]
+          );
+
+        const clipped =
+          Math.max(
+            -3,
+            Math.min(
+              3,
+              z
+            )
+          );
+
+        const value =
+          0.5 +
+          clipped / 6;
+
+        normalized[i] =
+          value;
+
+        invertedNormalized[i] =
+          1 - value;
+      }
+
+      /*
+       * Gradients et cohérence directionnelle.
+       * Les vraies crêtes présentent une orientation locale stable,
+       * contrairement au bruit et aux grosses taches.
+       */
+      const gradX =
+        new Float32Array(N);
+
+      const gradY =
+        new Float32Array(N);
+
+      const gradMag =
+        new Float32Array(N);
+
+      for (let y = 1; y < H - 1; y++) {
+        for (let x = 1; x < W - 1; x++) {
+          const i = y * W + x;
+
+          const gx =
+            normalized[i + 1] -
+            normalized[i - 1];
+
+          const gy =
+            normalized[i + W] -
+            normalized[i - W];
+
+          gradX[i] = gx;
+          gradY[i] = gy;
+          gradMag[i] =
+            Math.sqrt(
+              gx * gx +
+              gy * gy
+            );
+        }
+      }
+
+      const coherence =
+        new Float32Array(N);
+
+      const coherenceRadius = 5;
+
+      for (
+        let y = coherenceRadius;
+        y < H - coherenceRadius;
+        y++
+      ) {
+        for (
+          let x = coherenceRadius;
+          x < W - coherenceRadius;
+          x++
+        ) {
+          let sumGxx = 0;
+          let sumGyy = 0;
+          let sumGxy = 0;
+
+          for (
+            let dy = -coherenceRadius;
+            dy <= coherenceRadius;
+            dy++
+          ) {
+            for (
+              let dx = -coherenceRadius;
+              dx <= coherenceRadius;
+              dx++
+            ) {
+              const j =
+                (y + dy) * W +
+                (x + dx);
+
+              const gx =
+                gradX[j];
+
+              const gy =
+                gradY[j];
+
+              sumGxx += gx * gx;
+              sumGyy += gy * gy;
+              sumGxy += gx * gy;
+            }
+          }
+
+          const numerator =
+            Math.sqrt(
+              (
+                sumGxx -
+                sumGyy
+              ) ** 2 +
+              4 *
+                sumGxy *
+                sumGxy
+            );
+
+          const denominator =
+            sumGxx +
+            sumGyy +
+            1e-6;
+
+          coherence[y * W + x] =
+            numerator /
+            denominator;
+        }
+      }
+
+      /*
+       * ROI : texture + cohérence + exclusion du cadre.
        */
       const textureValues = [];
+      const coherenceValues = [];
 
-      for (let y = borderMargin; y < H - borderMargin; y++) {
-        for (let x = borderMargin; x < W - borderMargin; x++) {
+      for (
+        let y = borderMargin;
+        y < H - borderMargin;
+        y++
+      ) {
+        for (
+          let x = borderMargin;
+          x < W - borderMargin;
+          x++
+        ) {
+          const i = y * W + x;
+
           textureValues.push(
-            localSmall.std[y * W + x]
+            localSmall.std[i]
+          );
+
+          coherenceValues.push(
+            coherence[i]
           );
         }
       }
 
       const textureThreshold = Math.max(
-        0.010,
+        0.008,
         percentile(
           textureValues,
-          0.30
+          0.28
+        )
+      );
+
+      const coherenceThreshold = Math.max(
+        0.08,
+        percentile(
+          coherenceValues,
+          0.22
         )
       );
 
       const roiCandidate =
         new Uint8Array(N);
 
-      for (let y = borderMargin; y < H - borderMargin; y++) {
-        for (let x = borderMargin; x < W - borderMargin; x++) {
+      for (
+        let y = borderMargin;
+        y < H - borderMargin;
+        y++
+      ) {
+        for (
+          let x = borderMargin;
+          x < W - borderMargin;
+          x++
+        ) {
           const i = y * W + x;
 
           const texture =
-            0.65 * localSmall.std[i] +
-            0.35 * localMedium.std[i];
+            0.55 *
+              localSmall.std[i] +
+            0.45 *
+              localMedium.std[i];
 
           roiCandidate[i] =
-            texture >= textureThreshold
+            texture >=
+              textureThreshold &&
+            coherence[i] >=
+              coherenceThreshold
               ? 1
               : 0;
         }
@@ -1439,33 +1629,60 @@ drawH
 
       roi = removeSmallComponents(
         roi,
-        120
+        90
       );
 
       /*
-       * Repli si l'image possède peu de texture.
+       * Repli robuste pour empreintes très faibles.
        */
-      if (countMask(roi) < N * 0.08) {
+      if (countMask(roi) < N * 0.06) {
         roi = new Uint8Array(N);
 
-        for (let y = borderMargin; y < H - borderMargin; y++) {
-          for (let x = borderMargin; x < W - borderMargin; x++) {
-            roi[y * W + x] = 1;
+        for (
+          let y = borderMargin;
+          y < H - borderMargin;
+          y++
+        ) {
+          for (
+            let x = borderMargin;
+            x < W - borderMargin;
+            x++
+          ) {
+            const i = y * W + x;
+
+            roi[i] =
+              localSmall.std[i] >=
+                textureThreshold
+                ? 1
+                : 0;
           }
         }
+
+        roi = binaryClose(
+          roi,
+          2
+        );
+
+        roi = removeSmallComponents(
+          roi,
+          70
+        );
       }
 
       /*
-       * Masque elliptique souple :
-       * il enlève les coins et le cadre sans couper
-       * la zone centrale de l'empreinte.
+       * Masque elliptique souple pour éliminer
+       * les coins et les cadres rectangulaires.
        */
       const centerX = W / 2;
       const centerY = H / 2;
+
       const radiusX =
-        W / 2 - borderMargin;
+        W / 2 -
+        borderMargin;
+
       const radiusY =
-        H / 2 - borderMargin;
+        H / 2 -
+        borderMargin;
 
       for (let y = 0; y < H; y++) {
         for (let x = 0; x < W; x++) {
@@ -1473,16 +1690,23 @@ drawH
 
           const nx =
             (x - centerX) /
-            Math.max(1, radiusX);
+            Math.max(
+              1,
+              radiusX
+            );
 
           const ny =
             (y - centerY) /
-            Math.max(1, radiusY);
+            Math.max(
+              1,
+              radiusY
+            );
 
-          const insideEllipse =
-            nx * nx + ny * ny <= 1.08;
-
-          if (!insideEllipse) {
+          if (
+            nx * nx +
+            ny * ny >
+            1.02
+          ) {
             roi[i] = 0;
           }
         }
@@ -1495,84 +1719,80 @@ drawH
         countMask(roi)
       );
 
-      const invertedGray =
-        new Float32Array(N);
-
-      for (let i = 0; i < N; i++) {
-        invertedGray[i] =
-          1 - gray[i];
-      }
-
       /*
-       * Réponse multi-échelle aux crêtes.
-       * On calcule les deux polarités.
+       * Réponses multi-échelles aux crêtes
+       * pour les deux polarités.
        */
-      const darkBand =
+      const darkResponse =
         new Float32Array(N);
 
-      const lightBand =
+      const lightResponse =
         new Float32Array(N);
 
       for (
         const sigma of [
-          0.55,
-          0.8,
-          1.05,
-          1.35,
-          1.7,
-          2.15,
-          2.7,
+          0.45,
+          0.65,
+          0.85,
+          1.10,
+          1.40,
+          1.75,
+          2.20,
+          2.80,
+          3.40,
         ]
       ) {
         const darkFine = gauss(
-          invertedGray,
+          invertedNormalized,
           sigma
         );
 
         const darkCoarse = gauss(
-          invertedGray,
-          sigma * 2.5
+          invertedNormalized,
+          sigma * 2.35
         );
 
         const lightFine = gauss(
-          gray,
+          normalized,
           sigma
         );
 
         const lightCoarse = gauss(
-          gray,
-          sigma * 2.5
+          normalized,
+          sigma * 2.35
         );
 
         for (let i = 0; i < N; i++) {
           if (!roi[i]) continue;
 
-          const darkResponse = Math.max(
-            0,
-            darkFine[i] -
+          const dark =
+            Math.max(
+              0,
+              darkFine[i] -
               darkCoarse[i]
-          );
+            );
 
-          const lightResponse = Math.max(
-            0,
-            lightFine[i] -
+          const light =
+            Math.max(
+              0,
+              lightFine[i] -
               lightCoarse[i]
-          );
+            );
 
           if (
-            darkResponse >
-            darkBand[i]
+            dark >
+            darkResponse[i]
           ) {
-            darkBand[i] =
-              darkResponse;
+            darkResponse[i] =
+              dark;
           }
 
           if (
-            lightResponse >
-            lightBand[i]
+            light >
+            lightResponse[i]
           ) {
-            lightBand[i] =
-              lightResponse;
+            lightResponse[i] =
+              light;
           }
         }
       }
@@ -1583,35 +1803,38 @@ drawH
       for (let i = 0; i < N; i++) {
         if (!roi[i]) continue;
 
-        if (darkBand[i] > 0) {
+        if (darkResponse[i] > 0) {
           darkValues.push(
-            darkBand[i]
+            darkResponse[i]
           );
         }
 
-        if (lightBand[i] > 0) {
+        if (lightResponse[i] > 0) {
           lightValues.push(
-            lightBand[i]
+            lightResponse[i]
           );
         }
       }
 
       const darkScale = Math.max(
-        1e-5,
+        1e-6,
         percentile(
           darkValues,
-          0.965
+          0.97
         )
       );
 
       const lightScale = Math.max(
-        1e-5,
+        1e-6,
         percentile(
           lightValues,
-          0.965
+          0.97
         )
       );
 
+      /*
+       * Contraste local pour les deux polarités.
+       */
       const darkLocal =
         new Float32Array(N);
 
@@ -1622,7 +1845,7 @@ drawH
         new Float32Array(N);
 
       const textureScale = Math.max(
-        1e-5,
+        1e-6,
         percentile(
           textureValues,
           0.90
@@ -1632,54 +1855,54 @@ drawH
       for (let i = 0; i < N; i++) {
         if (!roi[i]) continue;
 
-        const texture = Math.min(
-          1,
-          localSmall.std[i] /
-            textureScale
-        );
-
         textureWeight[i] =
-          texture;
+          Math.min(
+            1,
+            localSmall.std[i] /
+              textureScale
+          );
 
-        const reference =
-          localLarge.mean[i];
+        const mean =
+          localMedium.mean[i];
 
         const spread = Math.max(
-          0.018,
-          localLarge.std[i]
+          0.014,
+          localMedium.std[i]
         );
 
-        darkLocal[i] = Math.min(
-          1,
-          Math.max(
-            0,
-            (
-              reference -
-              gray[i]
-            ) /
-            spread /
-            1.8
-          )
-        );
+        darkLocal[i] =
+          Math.min(
+            1,
+            Math.max(
+              0,
+              (
+                mean -
+                gray[i]
+              ) /
+              spread /
+              1.6
+            )
+          );
 
-        lightLocal[i] = Math.min(
-          1,
-          Math.max(
-            0,
-            (
-              gray[i] -
-              reference
-            ) /
-            spread /
-            1.8
-          )
-        );
+        lightLocal[i] =
+          Math.min(
+            1,
+            Math.max(
+              0,
+              (
+                gray[i] -
+                mean
+              ) /
+              spread /
+              1.6
+            )
+          );
       }
 
       const buildMask = (
         localScore,
-        bandScore,
-        bandScale
+        ridgeScore,
+        ridgeScale
       ) => {
         const score =
           new Float32Array(N);
@@ -1689,24 +1912,36 @@ drawH
         for (let i = 0; i < N; i++) {
           if (!roi[i]) continue;
 
-          const normalizedBand =
+          const normalizedRidge =
             Math.min(
               1,
-              bandScore[i] /
-                bandScale
+              ridgeScore[i] /
+                ridgeScale
+            );
+
+          const coherenceWeight =
+            Math.max(
+              0.15,
+              coherence[i]
             );
 
           score[i] =
             (
-              0.30 *
+              0.22 *
                 localScore[i] +
-              0.70 *
-                normalizedBand
+              0.58 *
+                normalizedRidge +
+              0.20 *
+                Math.min(
+                  1,
+                  gradMag[i] * 8
+                )
             ) *
             Math.max(
-              0.20,
+              0.18,
               textureWeight[i]
-            );
+            ) *
+            coherenceWeight;
 
           values.push(
             score[i]
@@ -1715,12 +1950,12 @@ drawH
 
         let high = percentile(
           values,
-          0.65
+          0.63
         );
 
         let low = percentile(
           values,
-          0.42
+          0.38
         );
 
         let mask = hysteresis(
@@ -1734,15 +1969,15 @@ drawH
           countMask(mask) /
           roiArea;
 
-        if (density < 0.09) {
+        if (density < 0.08) {
           high = percentile(
             values,
-            0.56
+            0.53
           );
 
           low = percentile(
             values,
-            0.34
+            0.29
           );
 
           mask = hysteresis(
@@ -1751,15 +1986,15 @@ drawH
             low,
             high
           );
-        } else if (density > 0.30) {
+        } else if (density > 0.28) {
           high = percentile(
             values,
-            0.73
+            0.72
           );
 
           low = percentile(
             values,
-            0.53
+            0.50
           );
 
           mask = hysteresis(
@@ -1771,8 +2006,8 @@ drawH
         }
 
         /*
-         * Nettoyage léger :
-         * les crêtes restent séparées.
+         * Nettoyage contrôlé :
+         * fermeture légère puis suppression des petits débris.
          */
         mask = binaryClose(
           mask,
@@ -1781,11 +2016,11 @@ drawH
 
         mask = removeSmallComponents(
           mask,
-          5
+          4
         );
 
         /*
-         * Suppression définitive du cadre.
+         * Suppression stricte du cadre.
          */
         for (let y = 0; y < H; y++) {
           for (let x = 0; x < W; x++) {
@@ -1809,49 +2044,62 @@ drawH
       const darkMask =
         buildMask(
           darkLocal,
-          darkBand,
+          darkResponse,
           darkScale
         );
 
       const lightMask =
         buildMask(
           lightLocal,
-          lightBand,
+          lightResponse,
           lightScale
         );
 
       /*
-       * Évaluation du masque.
-       * Un cadre donne de longues lignes droites
-       * proches des bords : forte pénalité.
+       * Évaluation avancée :
+       * - couverture ;
+       * - densité réaliste ;
+       * - cohérence directionnelle ;
+       * - faible présence sur les bords ;
+       * - absence de gros blocs pleins.
        */
       const evaluateMask = mask => {
         const count =
           countMask(mask);
 
         const density =
-          count / roiArea;
+          count /
+          roiArea;
 
         let rowsWithData = 0;
         let colsWithData = 0;
         let edgePixels = 0;
+        let coherenceSum = 0;
+        let maxRowDensity = 0;
+        let maxColDensity = 0;
 
         for (let y = 0; y < H; y++) {
           let rowCount = 0;
 
           for (let x = 0; x < W; x++) {
-            if (!mask[y * W + x]) {
-              continue;
-            }
+            const i = y * W + x;
+
+            if (!mask[i]) continue;
 
             rowCount++;
+            coherenceSum +=
+              coherence[i];
 
             if (
-              x < borderMargin * 1.5 ||
-              x >= W -
+              x <
                 borderMargin * 1.5 ||
-              y < borderMargin * 1.5 ||
-              y >= H -
+              x >=
+                W -
+                borderMargin * 1.5 ||
+              y <
+                borderMargin * 1.5 ||
+              y >=
+                H -
                 borderMargin * 1.5
             ) {
               edgePixels++;
@@ -1861,21 +2109,30 @@ drawH
           if (rowCount > 0) {
             rowsWithData++;
           }
+
+          maxRowDensity = Math.max(
+            maxRowDensity,
+            rowCount / W
+          );
         }
 
         for (let x = 0; x < W; x++) {
-          let found = false;
+          let colCount = 0;
 
           for (let y = 0; y < H; y++) {
             if (mask[y * W + x]) {
-              found = true;
-              break;
+              colCount++;
             }
           }
 
-          if (found) {
+          if (colCount > 0) {
             colsWithData++;
           }
+
+          maxColDensity = Math.max(
+            maxColDensity,
+            colCount / H
+          );
         }
 
         const coverage =
@@ -1884,10 +2141,11 @@ drawH
             colsWithData / W
           ) / 2;
 
-        const densityPenalty =
-          Math.abs(
-            density -
-              0.16
+        const meanCoherence =
+          coherenceSum /
+          Math.max(
+            1,
+            count
           );
 
         const edgePenalty =
@@ -1897,10 +2155,28 @@ drawH
             count
           );
 
+        const blockPenalty =
+          Math.max(
+            0,
+            maxRowDensity - 0.46
+          ) +
+          Math.max(
+            0,
+            maxColDensity - 0.46
+          );
+
+        const densityPenalty =
+          Math.abs(
+            density -
+            0.15
+          );
+
         return (
-          coverage * 2.4 -
-          densityPenalty * 2.2 -
-          edgePenalty * 3.5
+          coverage * 2.5 +
+          meanCoherence * 1.8 -
+          edgePenalty * 3.8 -
+          blockPenalty * 4.2 -
+          densityPenalty * 2.0
         );
       };
 
