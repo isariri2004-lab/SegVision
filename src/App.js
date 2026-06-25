@@ -1,3 +1,12 @@
+/*
+ * SEGvision — AUTHENTIFICATION ROTATIONS V6
+ * - Liste complète conservée à droite
+ * - Un seul utilisateur marqué "Authentifié"
+ * - 12 rotations + miroir horizontal
+ * - Tolérance empreinte : 60 %
+ * - Tolérance rétine : 52 %
+ */
+
 import React, { useState, useRef, useCallback, useEffect } from "react";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -4288,7 +4297,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 
         const empreinteMatch =
           empreinteComparison.match ||
-          empreinteComparison.similarity >= 70;
+          empreinteComparison.similarity >= 60;
 
         let bestRetina = null;
 
@@ -4304,7 +4313,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
               ...rawComparison,
               match:
                 rawComparison.match ||
-                rawComparison.similarity >= 58,
+                rawComparison.similarity >= 52,
             };
 
             const candidate = {
@@ -4884,7 +4893,21 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
           marginBottom: 12,
         }}
       >
-        Résultats
+        Résultats — rotations actives V6
+      </div>
+
+      <div
+        style={{
+          padding: "8px 10px",
+          marginBottom: 12,
+          borderRadius: 8,
+          background: C.primaryLight,
+          color: C.primary,
+          fontSize: 11,
+          fontWeight: 700,
+        }}
+      >
+        12 rotations + miroir testés automatiquement
       </div>
 
       {!authResult ? (
