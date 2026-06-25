@@ -1,4 +1,10 @@
 /*
+ * V12 — SEGMENTATION EMPREINTE MULTI-IMAGES
+ * Seule la segmentation de l'empreinte a été modifiée.
+ * Gestion automatique des polarités, contrastes, fonds et épaisseurs.
+ */
+
+/*
  * V11 — SEGMENTATION EMPREINTE AMÉLIORÉE
  * Seule la branche de segmentation de l'empreinte a été modifiée.
  * Toutes les autres fonctions du site restent identiques à la V10.
@@ -1338,78 +1344,79 @@ drawH
       }
     } else {
       /*
-       * SEGMENTATION EMPREINTE AMÉLIORÉE
+       * SEGMENTATION EMPREINTE MULTI-IMAGES
        *
-       * Cette partie uniquement a été modifiée.
-       * Le traitement de la rétine, les rotations,
-       * les comptes et l'authentification restent inchangés.
+       * Cette branche s'adapte automatiquement à :
+       * - empreinte noire sur fond blanc ;
+       * - empreinte blanche sur fond noir ;
+       * - image sombre ou claire ;
+       * - photo couleur ;
+       * - empreinte partielle ;
+       * - fond uniforme ou avec bordure ;
+       * - crêtes fines ou épaisses.
+       *
+       * Seule la segmentation de l'empreinte est modifiée.
        */
 
-      /*
-       * Statistiques locales utilisées pour détecter
-       * les crêtes sombres par rapport à leur voisinage.
-       */
       const localGray = buildLocalStats(
         gray,
-        8
+        9
       );
 
       /*
-       * Construction de la zone utile de l'empreinte.
-       *
-       * On détecte d'abord toute la surface réellement
-       * occupée par l'image, puis on remplit les crêtes
-       * noires qui apparaissent comme des trous.
-       *
-       * Cela évite de ne segmenter que le haut de l'image.
+       * Détection automatique de la zone utile par texture.
+       * On ne dépend plus seulement de la luminosité,
+       * ce qui permet de traiter les fonds noirs et blancs.
        */
-      const supportCandidate =
-        new Uint8Array(N);
+      const textureValues = [];
 
       for (let i = 0; i < N; i++) {
-        const r = raw[i * 4] / 255;
-        const g = raw[i * 4 + 1] / 255;
-        const b = raw[i * 4 + 2] / 255;
-
-        const maxChannel =
-          Math.max(r, g, b);
-
-        supportCandidate[i] =
-          maxChannel > 0.055
-            ? 1
-            : 0;
+        textureValues.push(
+          localGray.std[i]
+        );
       }
 
-      let roi =
-        largestConnectedComponent(
-          supportCandidate
-        );
-
-      /*
-       * Les crêtes noires internes sont intégrées
-       * dans la zone utile.
-       */
-      roi = fillHoles(
-        binaryClose(
-          roi,
-          4
+      const textureThreshold = Math.max(
+        0.012,
+        percentile(
+          textureValues,
+          0.38
         )
       );
 
-      /*
-       * Retrait léger des bords pour ne pas détecter
-       * le cadre ou les limites de l'image.
-       */
+      const roiCandidate =
+        new Uint8Array(N);
+
+      for (let y = 4; y < H - 4; y++) {
+        for (let x = 4; x < W - 4; x++) {
+          const i = y * W + x;
+
+          roiCandidate[i] =
+            localGray.std[i] >=
+              textureThreshold
+              ? 1
+              : 0;
+        }
+      }
+
+      let roi = largestConnectedComponent(
+        binaryClose(
+          roiCandidate,
+          3
+        )
+      );
+
+      roi = fillHoles(roi);
       roi = binaryErode(
         roi,
         2
       );
 
       /*
-       * Si l'image ne possède pas de fond suffisamment
-       * clair, on utilise tout le cadre intérieur.
+       * Repli sécurisé si l'empreinte est très lisse
+       * ou si le contraste est faible.
        */
-      if (countMask(roi) < N * 0.18) {
+      if (countMask(roi) < N * 0.10) {
         roi = new Uint8Array(N);
 
         for (let y = 8; y < H - 8; y++) {
@@ -1427,10 +1434,14 @@ drawH
       );
 
       /*
-       * Score principal :
-       * une crête est plus sombre que la moyenne locale.
+       * Deux polarités sont calculées :
+       * 1) crêtes sombres sur fond clair ;
+       * 2) crêtes claires sur fond sombre.
        */
-      const localRidge =
+      const darkRidgeScore =
+        new Float32Array(N);
+
+      const lightRidgeScore =
         new Float32Array(N);
 
       const invertedGray =
@@ -1442,31 +1453,50 @@ drawH
 
         if (!roi[i]) continue;
 
-        const localDifference =
-          localGray.mean[i] -
-          gray[i];
+        const std = Math.max(
+          0.015,
+          localGray.std[i]
+        );
 
-        const normalizedDifference =
-          localDifference /
-          Math.max(
-            0.018,
-            localGray.std[i]
+        const darkZ =
+          (
+            localGray.mean[i] -
+            gray[i]
+          ) / std;
+
+        const lightZ =
+          (
+            gray[i] -
+            localGray.mean[i]
+          ) / std;
+
+        darkRidgeScore[i] =
+          Math.min(
+            1,
+            Math.max(
+              0,
+              darkZ / 1.8
+            )
           );
 
-        localRidge[i] = Math.min(
-          1,
-          Math.max(
-            0,
-            normalizedDifference / 1.7
-          )
-        );
+        lightRidgeScore[i] =
+          Math.min(
+            1,
+            Math.max(
+              0,
+              lightZ / 1.8
+            )
+          );
       }
 
       /*
-       * Différence de Gaussiennes multi-échelle :
-       * renforce les crêtes fines et épaisses.
+       * Renforcement multi-échelle pour récupérer
+       * aussi bien les crêtes fines que les crêtes épaisses.
        */
-      const dog =
+      const darkDog =
+        new Float32Array(N);
+
+      const lightDog =
         new Float32Array(N);
 
       for (
@@ -1476,156 +1506,288 @@ drawH
           1.1,
           1.5,
           2.0,
-          2.6,
+          2.7,
+          3.4,
         ]
       ) {
-        const fine = gauss(
+        const darkFine = gauss(
           invertedGray,
           sigma
         );
 
-        const coarse = gauss(
+        const darkCoarse = gauss(
           invertedGray,
-          sigma * 2.4
+          sigma * 2.3
+        );
+
+        const lightFine = gauss(
+          gray,
+          sigma
+        );
+
+        const lightCoarse = gauss(
+          gray,
+          sigma * 2.3
         );
 
         for (let i = 0; i < N; i++) {
           if (!roi[i]) continue;
 
-          const response = Math.max(
-            0,
-            fine[i] - coarse[i]
-          );
+          const darkResponse =
+            Math.max(
+              0,
+              darkFine[i] -
+                darkCoarse[i]
+            );
 
-          if (response > dog[i]) {
-            dog[i] = response;
+          const lightResponse =
+            Math.max(
+              0,
+              lightFine[i] -
+                lightCoarse[i]
+            );
+
+          if (
+            darkResponse >
+            darkDog[i]
+          ) {
+            darkDog[i] =
+              darkResponse;
+          }
+
+          if (
+            lightResponse >
+            lightDog[i]
+          ) {
+            lightDog[i] =
+              lightResponse;
           }
         }
       }
 
-      const dogValues = [];
-
-      for (let i = 0; i < N; i++) {
-        if (roi[i] && dog[i] > 0) {
-          dogValues.push(dog[i]);
-        }
-      }
-
-      const dogScale = Math.max(
-        1e-5,
-        percentile(
-          dogValues,
-          0.97
-        )
-      );
-
-      /*
-       * Score final :
-       * priorité au contraste local, complété par DoG.
-       */
-      const ridgeScore =
-        new Float32Array(N);
-
-      const scoreValues = [];
+      const darkDogValues = [];
+      const lightDogValues = [];
 
       for (let i = 0; i < N; i++) {
         if (!roi[i]) continue;
 
-        const normalizedDog =
-          Math.min(
-            1,
-            dog[i] / dogScale
+        if (darkDog[i] > 0) {
+          darkDogValues.push(
+            darkDog[i]
+          );
+        }
+
+        if (lightDog[i] > 0) {
+          lightDogValues.push(
+            lightDog[i]
+          );
+        }
+      }
+
+      const darkScale = Math.max(
+        1e-5,
+        percentile(
+          darkDogValues,
+          0.97
+        )
+      );
+
+      const lightScale = Math.max(
+        1e-5,
+        percentile(
+          lightDogValues,
+          0.97
+        )
+      );
+
+      const buildFingerprintMask = (
+        localScore,
+        dogScore,
+        dogScale
+      ) => {
+        const score =
+          new Float32Array(N);
+
+        const values = [];
+
+        for (let i = 0; i < N; i++) {
+          if (!roi[i]) continue;
+
+          const dogNormalized =
+            Math.min(
+              1,
+              dogScore[i] /
+                dogScale
+            );
+
+          score[i] =
+            0.76 *
+              localScore[i] +
+            0.24 *
+              dogNormalized;
+
+          values.push(
+            score[i]
+          );
+        }
+
+        let high = percentile(
+          values,
+          0.58
+        );
+
+        let low = percentile(
+          values,
+          0.33
+        );
+
+        let mask = hysteresis(
+          score,
+          roi,
+          low,
+          high
+        );
+
+        let density =
+          countMask(mask) /
+          roiArea;
+
+        if (density < 0.10) {
+          high = percentile(
+            values,
+            0.49
           );
 
-        ridgeScore[i] =
-          0.78 * localRidge[i] +
-          0.22 * normalizedDog;
+          low = percentile(
+            values,
+            0.24
+          );
 
-        scoreValues.push(
-          ridgeScore[i]
+          mask = hysteresis(
+            score,
+            roi,
+            low,
+            high
+          );
+        } else if (density > 0.52) {
+          high = percentile(
+            values,
+            0.69
+          );
+
+          low = percentile(
+            values,
+            0.47
+          );
+
+          mask = hysteresis(
+            score,
+            roi,
+            low,
+            high
+          );
+        }
+
+        mask = binaryClose(
+          mask,
+          1
         );
-      }
+
+        return removeSmallComponents(
+          mask,
+          5
+        );
+      };
+
+      const darkMask =
+        buildFingerprintMask(
+          darkRidgeScore,
+          darkDog,
+          darkScale
+        );
+
+      const lightMask =
+        buildFingerprintMask(
+          lightRidgeScore,
+          lightDog,
+          lightScale
+        );
 
       /*
-       * Seuils plus souples pour récupérer les crêtes
-       * sur toute la hauteur de l'empreinte.
+       * Sélection automatique de la meilleure polarité.
+       *
+       * On privilégie une densité réaliste de crêtes
+       * et une couverture suffisante de la zone utile.
        */
-      let high = percentile(
-        scoreValues,
-        0.57
-      );
+      const scoreMask = mask => {
+        const count =
+          countMask(mask);
 
-      let low = percentile(
-        scoreValues,
-        0.34
-      );
+        const density =
+          count / roiArea;
 
-      let mask = hysteresis(
-        ridgeScore,
-        roi,
-        low,
-        high
-      );
+        let rowsWithData = 0;
+        let colsWithData = 0;
 
-      let density =
-        countMask(mask) /
-        roiArea;
+        for (let y = 0; y < H; y++) {
+          let found = false;
+
+          for (let x = 0; x < W; x++) {
+            if (mask[y * W + x]) {
+              found = true;
+              break;
+            }
+          }
+
+          if (found) {
+            rowsWithData++;
+          }
+        }
+
+        for (let x = 0; x < W; x++) {
+          let found = false;
+
+          for (let y = 0; y < H; y++) {
+            if (mask[y * W + x]) {
+              found = true;
+              break;
+            }
+          }
+
+          if (found) {
+            colsWithData++;
+          }
+        }
+
+        const coverage =
+          (
+            rowsWithData / H +
+            colsWithData / W
+          ) / 2;
+
+        const densityTarget =
+          0.27;
+
+        const densityPenalty =
+          Math.abs(
+            density -
+              densityTarget
+          );
+
+        return (
+          coverage * 2 -
+          densityPenalty
+        );
+      };
+
+      clean =
+        scoreMask(darkMask) >=
+        scoreMask(lightMask)
+          ? darkMask
+          : lightMask;
 
       /*
-       * Ajustement automatique selon la densité obtenue.
-       */
-      if (density < 0.12) {
-        high = percentile(
-          scoreValues,
-          0.49
-        );
-
-        low = percentile(
-          scoreValues,
-          0.27
-        );
-
-        mask = hysteresis(
-          ridgeScore,
-          roi,
-          low,
-          high
-        );
-      } else if (density > 0.48) {
-        high = percentile(
-          scoreValues,
-          0.66
-        );
-
-        low = percentile(
-          scoreValues,
-          0.45
-        );
-
-        mask = hysteresis(
-          ridgeScore,
-          roi,
-          low,
-          high
-        );
-      }
-
-      /*
-       * Ferme les petites coupures entre portions
-       * d'une même crête sans trop épaissir le masque.
-       */
-      mask = binaryClose(
-        mask,
-        1
-      );
-
-      clean = removeSmallComponents(
-        mask,
-        6
-      );
-
-      /*
-       * Suppression des pixels hors empreinte.
+       * Nettoyage final hors ROI.
        */
       for (let i = 0; i < N; i++) {
         clean[i] =
