@@ -1595,412 +1595,235 @@ img.src = url;
 
 });
 }
-const RETINA_ANGLES = [
-  0,
-  30,
-  60,
-  90,
-  120,
-  150,
-  180,
-  210,
-  240,
-  270,
-  300,
-  330,
+const LOGIN_RETINA_ANGLES = [
+0,
+30,
+60,
+90,
+120,
+150,
+180,
+210,
+240,
+270,
+300,
+330,
 ];
 
-// Angles intermédiaires testés uniquement si les rotations principales
-// ne suffisent pas. Cela permet de reconnaître aussi 15°, 45°, 75°, etc.
-const RETINA_HALF_STEP_ANGLES =
-  RETINA_ANGLES.map(angle => angle + 15);
-
-// Dernier affinage : une orientation tous les 7,5° entre les angles déjà testés.
-// La différence résiduelle maximale tombe ainsi à environ 3,75°.
-const RETINA_FINE_ANGLES = Array.from(
-  { length: 24 },
-  (_, index) => 7.5 + index * 15
-);
-
-const transformRetinaFile = (
+const rotateRetinaForLogin = (
   file,
   angle,
   flipH = false
 ) =>
-  new Promise((resolve, reject) => {
-    // À 0° sans miroir, on garde directement le fichier original.
-    if (angle === 0 && !flipH) {
-      resolve(file);
-      return;
+new Promise((resolve, reject) => {
+if (angle === 0 && !flipH) {
+resolve(file);
+return;
+}
+
+
+const image = new Image();
+const imageUrl =
+  URL.createObjectURL(file);
+
+image.onload = () => {
+  try {
+    /*
+     * Carré centré afin de garder
+     * toujours la même taille.
+     */
+    const side = Math.min(
+      image.width,
+      image.height
+    );
+
+    const sourceX =
+      (image.width - side) / 2;
+
+    const sourceY =
+      (image.height - side) / 2;
+
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = side;
+    canvas.height = side;
+
+    const context =
+      canvas.getContext("2d");
+
+    if (!context) {
+      throw new Error(
+        "Canvas 2D indisponible."
+      );
     }
 
-    const image = new Image();
-    const imageUrl = URL.createObjectURL(file);
+    /*
+     * Le fond noir forme le padding
+     * autour de l'image tournée.
+     */
+    context.fillStyle = "#000000";
 
-    const cleanup = () => {
-      URL.revokeObjectURL(imageUrl);
-    };
+    context.fillRect(
+      0,
+      0,
+      side,
+      side
+    );
+    context.imageSmoothingEnabled =
+      true;
 
-    image.onload = () => {
-      try {
-        /*
-         * On travaille sur un carré centré de même taille.
-         * Le fond noir sert de padding autour de l'image tournée.
-         */
-        const side = Math.min(
-          image.width,
-          image.height
+    context.imageSmoothingQuality =
+      "high";
+
+    context.translate(
+      side / 2,
+      side / 2
+    );
+    
+context.rotate(
+angle * Math.PI / 180
+);
+
+context.scale(
+flipH ? -1 : 1,
+1
+);
+    context.drawImage(
+      image,
+      sourceX,
+      sourceY,
+      side,
+      side,
+      -side / 2,
+      -side / 2,
+      side,
+      side
+    );
+
+    canvas.toBlob(
+      blob => {
+        URL.revokeObjectURL(
+          imageUrl
         );
 
-        const sourceX =
-          (image.width - side) / 2;
-
-        const sourceY =
-          (image.height - side) / 2;
-
-        const canvas =
-          document.createElement("canvas");
-
-        canvas.width = side;
-        canvas.height = side;
-
-        const context =
-          canvas.getContext("2d");
-
-        if (!context) {
-          throw new Error(
-            "Canvas 2D indisponible."
+        if (!blob) {
+          reject(
+            new Error(
+              "Impossible de générer la rotation."
+            )
           );
+          return;
         }
 
-        context.fillStyle = "#000000";
-        context.fillRect(
-          0,
-          0,
-          side,
-          side
-        );
-
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = "high";
-
-        // Rotation autour du centre de l'image.
-        context.translate(
-          side / 2,
-          side / 2
-        );
-
-        context.rotate(
-          angle * Math.PI / 180
-        );
-
-        // Le miroir horizontal couvre aussi les autres miroirs
-        // lorsqu'il est combiné avec les rotations de 0° à 330°.
-        context.scale(
-          flipH ? -1 : 1,
-          1
-        );
-
-        context.drawImage(
-          image,
-          sourceX,
-          sourceY,
-          side,
-          side,
-          -side / 2,
-          -side / 2,
-          side,
-          side
-        );
-
-        canvas.toBlob(
-          blob => {
-            cleanup();
-
-            if (!blob) {
-              reject(
-                new Error(
-                  "Impossible de générer l'image rétinienne transformée."
-                )
-              );
-              return;
+        resolve(
+          new File(
+            [blob],
+            `login_rotation_${angle}_${file.name}`,
+            {
+              type: "image/png",
             }
-
-            resolve(
-              new File(
-                [blob],
-                `retine_${angle}_${
-                  flipH ? "miroir_" : ""
-                }${file.name}`,
-                {
-                  type: "image/png",
-                }
-              )
-            );
-          },
-          "image/png"
+          )
         );
-      } catch (error) {
-        cleanup();
-        reject(error);
-      }
-    };
-
-    image.onerror = () => {
-      cleanup();
-
-      reject(
-        new Error(
-          "Impossible de lire l'image rétinienne."
-        )
-      );
-    };
-
-    image.src = imageUrl;
-  });
-
-const processRetinaVariants = async (
-  file,
-  angles = RETINA_ANGLES,
-  includeMirror = true
-) => {
-  const variants = [];
-
-  /*
-   * Par défaut : rotations normales + miroir pour l'enregistrement.
-   * Pendant la connexion, le miroir n'est pas recalculé inutilement :
-   * les versions miroir sont déjà présentes dans les références du compte.
-   */
-  const flipModes = includeMirror
-    ? [false, true]
-    : [false];
-
-  for (const flipH of flipModes) {
-    for (const angle of angles) {
-      const transformedFile =
-        await transformRetinaFile(
-          file,
-          angle,
-          flipH
-        );
-
-      const biometric =
-        await processBiometric(
-          transformedFile,
-          "retine"
-        );
-
-      variants.push({
-        angle,
-        flipH,
-        biometric,
-      });
-    }
-  }
-
-  return variants;
-};
-
-const compareRetinaRotationAware = (
-  firstVector,
-  secondVector
-) => {
-  const rawComparison =
-    compareRetinaVectors(
-      firstVector,
-      secondVector
+      },
+      "image/png"
+    );
+  } catch (error) {
+    URL.revokeObjectURL(
+      imageUrl
     );
 
-  /*
-   * Une rotation ou un miroir peut modifier légèrement
-   * la segmentation à cause du rééchantillonnage.
-   */
-  const rotationMatch =
-    rawComparison.match ||
-    (
-      rawComparison.similarity >= 52 &&
-      rawComparison.distance <= 0.85 &&
-      (
-        rawComparison.within >= 3 ||
-        rawComparison.similarity >= 60
-      )
-    );
-
-  return {
-    ...rawComparison,
-    match: rotationMatch,
-    rotationTolerated:
-      rotationMatch &&
-      !rawComparison.match,
-  };
-};
-
-// Regroupe le vecteur principal et toutes les orientations enregistrées.
-// Les anciens comptes qui ne possèdent qu'un seul retineVector restent compatibles.
-const getRetinaReferenceVectors = (
-  referenceVector,
-  referenceVectors = []
-) => {
-  const vectors = [];
-  const signatures = new Set();
-
-  const addVector = vector => {
-    if (!validVector(vector, 5)) return;
-
-    const normalized = vector.map(Number);
-    const signature = normalized
-      .map(value => value.toFixed(6))
-      .join("|");
-
-    if (signatures.has(signature)) return;
-
-    signatures.add(signature);
-    vectors.push(normalized);
-  };
-
-  addVector(referenceVector);
-
-  if (Array.isArray(referenceVectors)) {
-    for (const item of referenceVectors) {
-      if (Array.isArray(item)) {
-        addVector(item);
-      } else {
-        addVector(
-          item?.vector ||
-          item?.optimizedArray ||
-          item?.biometric?.optimizedArray
-        );
-      }
-    }
+    reject(error);
   }
-
-  return vectors;
 };
 
-const findBestRetinaVariant = (
-  variants,
-  referenceVector,
-  referenceVectors = []
-) => {
-  const storedVectors =
-    getRetinaReferenceVectors(
-      referenceVector,
-      referenceVectors
-    );
+image.onerror = () => {
+  URL.revokeObjectURL(
+    imageUrl
+  );
 
-  let best = null;
-
-  for (const variant of variants) {
-    for (
-      let referenceIndex = 0;
-      referenceIndex < storedVectors.length;
-      referenceIndex++
-    ) {
-      const comparison =
-        compareRetinaRotationAware(
-          variant.biometric.optimizedArray,
-          storedVectors[referenceIndex]
-        );
-
-      const candidate = {
-        ...variant,
-        referenceIndex,
-        comparison,
-      };
-
-      if (
-        !best ||
-        (
-          comparison.match &&
-          !best.comparison.match
-        ) ||
-        (
-          comparison.match ===
-            best.comparison.match &&
-          comparison.similarity >
-            best.comparison.similarity
-        )
-      ) {
-        best = candidate;
-      }
-
-      // La même signature exacte permet d'arrêter immédiatement.
-      if (comparison.exact) {
-        return candidate;
-      }
-    }
-  }
-
-  return best;
+  reject(
+    new Error(
+      "Impossible de lire la rétine."
+    )
+  );
 };
+
+image.src = imageUrl;
+
+
+});
 
 const compareRetinaLoginRotations = async (
-  file,
-  referenceVector,
-  referenceVectors = []
+file,
+referenceVector,
+onProgress
 ) => {
-  const storedVectors =
-    getRetinaReferenceVectors(
-      referenceVector,
-      referenceVectors
+let best = null;
+
+for (const flipH of [false, true]) {
+for (const angle of LOGIN_RETINA_ANGLES) {
+if (onProgress) {
+onProgress(angle, flipH);
+}
+
+  const transformedFile =
+    await rotateRetinaForLogin(
+      file,
+      angle,
+      flipH
     );
 
-  if (storedVectors.length === 0) {
-    throw new Error(
-      "Les vecteurs rétiniens enregistrés sont invalides."
+  const biometric =
+    await processBiometric(
+      transformedFile,
+      "retine"
     );
-  }
 
-  const testedVariants = [];
-
-  const testAngles = async angles => {
-    const newVariants =
-      await processRetinaVariants(
-        file,
-        angles,
-        false
-      );
-
-    testedVariants.push(...newVariants);
-
-    return findBestRetinaVariant(
-      testedVariants,
-      referenceVector,
-      referenceVectors
+  const comparison =
+    compareRetinaVectors(
+      biometric.optimizedArray,
+      referenceVector
     );
+
+  const candidate = {
+    angle,
+    flipH,
+    biometric,
+    comparison,
   };
 
-  // 1) Recherche rapide tous les 30°.
-  let best =
-    await testAngles(RETINA_ANGLES);
-
-  if (best?.comparison?.match) {
-    return best;
+  if (
+    !best ||
+    (
+      comparison.match &&
+      !best.comparison.match
+    ) ||
+    (
+      comparison.match ===
+        best.comparison.match &&
+      comparison.similarity >
+        best.comparison.similarity
+    )
+  ) {
+    best = candidate;
   }
 
-  // 2) Si nécessaire, ajout des angles 15°, 45°, 75°, etc.
-  best =
-    await testAngles(
-      RETINA_HALF_STEP_ANGLES
-    );
-
-  if (best?.comparison?.match) {
-    return best;
+  if (comparison.exact) {
+    return candidate;
   }
+}
 
-  // 3) Dernier affinage tous les 7,5° pour les rotations inhabituelles.
-  best =
-    await testAngles(
-      RETINA_FINE_ANGLES
-    );
 
-  if (!best) {
-    throw new Error(
-      "Aucune orientation de la rétine n'a pu être analysée."
-    );
-  }
+}
 
-  return best;
+if (!best) {
+throw new Error(
+"Aucune orientation de la rétine n'a pu être analysée."
+);
+}
+
+return best;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2448,10 +2271,7 @@ if (u.role === "client") {
 
   if (
     requiredMode === "double" &&
-    getRetinaReferenceVectors(
-      u.retineVector,
-      u.retineVectors
-    ).length === 0
+    !u.retineVector
   ) {
     setErr(
       "Aucune rétine n'est enregistrée pour ce compte Premium."
@@ -2502,8 +2322,7 @@ if (requiredMode === "double") {
   const retinaRotationResult =
     await compareRetinaLoginRotations(
       retineFile,
-      u.retineVector,
-      u.retineVectors
+      u.retineVector
     );
 
   retineComparison =
@@ -4414,124 +4233,212 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 
   // ── Authentification ──────────────────────────────────────────────────────
   const runAuth = async () => {
-  if (!authFileE || database.length === 0) return;
-  if (authMode === "double" && !authFileR) return;
+    if (!authFileE || database.length === 0) return;
+    if (authMode === "double" && !authFileR) return;
 
-  setLoading(true);
-  setMsg("Calcul du vecteur empreinte...");
-  setAuthResult(null);
-
-  try {
-    const empreinteRes = await processBiometric(
-      authFileE,
-      "empreinte"
-    );
-
-    let retineRes = null;
-
-    if (authMode === "double") {
-      setMsg("Calcul du vecteur rétine...");
-      retineRes = await processBiometric(
-        authFileR,
-        "retine"
-      );
-    }
-
-    setMsg("Comparaison avec la base...");
-
-    const results = database.map(entry => {
-      const empreinteComparison =
-        compareFingerprintVectors(
-          empreinteRes.optimizedArray,
-          entry.empreinteVector
-        );
-
-      const retineComparison =
-        authMode === "double"
-          ? compareRetinaVectors(
-              retineRes?.optimizedArray,
-              entry.retineVector
-            )
-          : null;
-
-      const globalMatch =
-        authMode === "double"
-          ? empreinteComparison.match &&
-            retineComparison?.match
-          : empreinteComparison.match;
-
-      const globalSimilarity =
-        authMode === "double"
-          ? (
-              empreinteComparison.similarity +
-              (retineComparison?.similarity || 0)
-            ) / 2
-          : empreinteComparison.similarity;
-
-      return {
-        ...entry,
-        empreinteDist:
-          empreinteComparison.distance,
-        retineDist:
-          retineComparison?.distance ?? null,
-        empreinteSimilarity:
-          empreinteComparison.similarity,
-        retineSimilarity:
-          retineComparison?.similarity ?? null,
-        empreinteMatch:
-          empreinteComparison.match,
-        retineMatch:
-          retineComparison?.match ?? false,
-        globalMatch,
-        globalSimilarity,
-        globalScore: 100 - globalSimilarity,
-      };
-    });
-
-    results.sort(
-      (a, b) =>
-        b.globalSimilarity - a.globalSimilarity
-    );
-
-    const bestMatch = results.find(
-      result => result.globalMatch
-    );
-
-    setAccessPopup(
-      bestMatch
-        ? {
-            status: "autorise",
-            name: bestMatch.name,
-            similarity:
-              bestMatch.globalSimilarity,
-          }
-        : {
-            status: "refuse",
-            name: null,
-            similarity:
-              results[0]?.globalSimilarity || 0,
-          }
-    );
-
-    setAuthResult({
-      results,
-      empreinteVec:
-        empreinteRes.optimizedArray,
-      retineVec:
-        retineRes?.optimizedArray || null,
-    });
-  } catch (error) {
-    setAccessPopup({
-      status: "refuse",
-      name: null,
-      similarity: 0,
-    });
+    setLoading(true);
     setAuthResult(null);
-  } finally {
-    setLoading(false);
-    setMsg("");
-  }
-};
+    setAccessPopup(null);
+
+    try {
+      setMsg("Analyse de l'empreinte...");
+
+      const empreinteRes = await processBiometric(
+        authFileE,
+        "empreinte"
+      );
+
+      let retinaVariants = [];
+
+      if (authMode === "double") {
+        setMsg("Analyse des rotations de la rétine...");
+
+        for (const flipH of [false, true]) {
+          for (const angle of LOGIN_RETINA_ANGLES) {
+            const transformedFile =
+              await rotateRetinaForLogin(
+                authFileR,
+                angle,
+                flipH
+              );
+
+            const biometric =
+              await processBiometric(
+                transformedFile,
+                "retine"
+              );
+
+            retinaVariants.push({
+              angle,
+              flipH,
+              biometric,
+            });
+          }
+        }
+      }
+
+      setMsg("Comparaison avec la base biométrique...");
+
+      const results = database.map(entry => {
+        const empreinteComparison =
+          compareFingerprintVectors(
+            empreinteRes.optimizedArray,
+            entry.empreinteVector
+          );
+
+        let bestRetina = null;
+
+        if (authMode === "double") {
+          for (const variant of retinaVariants) {
+            const rawComparison =
+              compareRetinaVectors(
+                variant.biometric.optimizedArray,
+                entry.retineVector
+              );
+
+            const comparison = {
+              ...rawComparison,
+              match:
+                rawComparison.match ||
+                (
+                  rawComparison.similarity >= 52 &&
+                  rawComparison.distance <= 0.85 &&
+                  (
+                    rawComparison.within >= 3 ||
+                    rawComparison.similarity >= 60
+                  )
+                ),
+            };
+
+            const candidate = {
+              ...variant,
+              comparison,
+            };
+
+            if (
+              !bestRetina ||
+              (
+                comparison.match &&
+                !bestRetina.comparison.match
+              ) ||
+              (
+                comparison.match ===
+                  bestRetina.comparison.match &&
+                comparison.similarity >
+                  bestRetina.comparison.similarity
+              )
+            ) {
+              bestRetina = candidate;
+            }
+          }
+        }
+
+        const retineComparison =
+          bestRetina?.comparison || null;
+
+        const globalMatch =
+          authMode === "double"
+            ? empreinteComparison.match &&
+              Boolean(retineComparison?.match)
+            : empreinteComparison.match;
+
+        const globalSimilarity =
+          authMode === "double"
+            ? (
+                empreinteComparison.similarity +
+                (retineComparison?.similarity || 0)
+              ) / 2
+            : empreinteComparison.similarity;
+
+        return {
+          ...entry,
+          empreinteDist:
+            empreinteComparison.distance,
+          retineDist:
+            retineComparison?.distance ?? null,
+          empreinteSimilarity:
+            empreinteComparison.similarity,
+          retineSimilarity:
+            retineComparison?.similarity ?? null,
+          empreinteMatch:
+            empreinteComparison.match,
+          retineMatch:
+            retineComparison?.match ?? false,
+          retinaAngle:
+            bestRetina?.angle ?? null,
+          retinaFlipH:
+            bestRetina?.flipH ?? false,
+          globalMatch,
+          globalSimilarity,
+          globalScore: 100 - globalSimilarity,
+        };
+      });
+
+      results.sort((a, b) => {
+        if (a.globalMatch !== b.globalMatch) {
+          return Number(b.globalMatch) -
+            Number(a.globalMatch);
+        }
+
+        return b.globalSimilarity -
+          a.globalSimilarity;
+      });
+
+      const bestMatch = results.find(
+        result => result.globalMatch
+      );
+
+      const bestResult = bestMatch || results[0];
+
+      setAccessPopup(
+        bestMatch
+          ? {
+              status: "autorise",
+              name: bestMatch.name,
+              similarity:
+                bestMatch.globalSimilarity,
+            }
+          : {
+              status: "refuse",
+              name: null,
+              similarity:
+                bestResult?.globalSimilarity || 0,
+            }
+      );
+
+      setAuthResult({
+        results,
+        empreinteVec:
+          empreinteRes.optimizedArray,
+        retineVec:
+          bestResult?.retinaAngle !== null
+            ? retinaVariants.find(
+                variant =>
+                  variant.angle ===
+                    bestResult.retinaAngle &&
+                  variant.flipH ===
+                    bestResult.retinaFlipH
+              )?.biometric.optimizedArray || null
+            : null,
+      });
+    } catch (error) {
+      console.error(
+        "Erreur authentification :",
+        error
+      );
+
+      setAccessPopup({
+        status: "refuse",
+        name: null,
+        similarity: 0,
+      });
+
+      setAuthResult(null);
+    } finally {
+      setLoading(false);
+      setMsg("");
+    }
+  };
 
   return (
     <div>
@@ -5254,7 +5161,6 @@ previous
 ? {
 ...previous,
 retine: null,
-retineVectors: null,
 }
 : previous
 );
@@ -5281,47 +5187,16 @@ setIdentityCheck(previous => ({
 
 setBusy(
 mode === "retine"
-? "Analyse de la rétine et génération automatique de toutes les rotations..."
+? "Analyse et identification de la rétine..."
 : "Analyse et identification de l'empreinte..."
 );
 
 try {
-let result = null;
-let retineVectors = null;
+const result = await processBiometric(
+file,
+mode
+);
 
-if (mode === "retine") {
-  const variants =
-    await processRetinaVariants(file);
-
-  const originalVariant =
-    variants.find(
-      variant =>
-        variant.angle === 0 &&
-        !variant.flipH
-    ) || variants[0];
-
-  if (!originalVariant) {
-    throw new Error(
-      "Aucune orientation de la rétine n'a pu être générée."
-    );
-  }
-
-  result = originalVariant.biometric;
-
-  retineVectors = variants
-    .map(
-      variant =>
-        variant.biometric.optimizedArray
-    )
-    .filter(vector =>
-      validVector(vector, 5)
-    );
-} else {
-  result = await processBiometric(
-    file,
-    mode
-  );
-}
 
 const identification =
   identifyInDatabase(
@@ -5332,9 +5207,6 @@ const identification =
 setBio(previous => ({
   ...(previous || {}),
   [mode]: result,
-  ...(mode === "retine"
-    ? { retineVectors }
-    : {}),
 }));
 
 setIdentityCheck(previous => ({
@@ -5393,16 +5265,6 @@ if (
   !bio?.retine
 ) {
   return "Le mode Premium nécessite également une rétine.";
-}
-
-if (
-  securityMode === "double" &&
-  getRetinaReferenceVectors(
-    bio?.retine?.optimizedArray,
-    bio?.retineVectors
-  ).length < 2
-) {
-  return "Les rotations de la rétine n'ont pas été correctement générées. Réimportez l'image rétinienne.";
 }
 const fingerprintIdentity =
   identityCheck.empreinte;
@@ -5471,13 +5333,6 @@ const account = {
     ? bio.retine.optimizedArray
     : null,
 
-  retineVectors: premium
-    ? getRetinaReferenceVectors(
-        bio.retine.optimizedArray,
-        bio.retineVectors
-      )
-    : null,
-
   hasEmpreinte: true,
   hasRetine: premium,
 };
@@ -5502,13 +5357,6 @@ setDatabase(previous => [
 
     retineVector: premium
       ? bio.retine.optimizedArray
-      : null,
-
-    retineVectors: premium
-      ? getRetinaReferenceVectors(
-          bio.retine.optimizedArray,
-          bio.retineVectors
-        )
       : null,
 
     hasEmpreinte: true,
@@ -5692,7 +5540,7 @@ mode
           }}
         >
           {mode === "retine"
-            ? "Rétine analysée · rotations enregistrées"
+            ? "Rétine analysée"
             : "Empreinte analysée"}
         </div>
       </>
@@ -6214,20 +6062,6 @@ identification={identityCheck.retine}
               .join(", ")}
             ]
           </div>
-
-          <div
-            style={{
-              fontSize: 11,
-              color: C.success,
-              marginTop: 7,
-              fontWeight: 700,
-            }}
-          >
-            {getRetinaReferenceVectors(
-              bio.retine.optimizedArray,
-              bio.retineVectors
-            ).length} orientations rétiniennes enregistrées automatiquement
-          </div>
         </div>
       )}
 
@@ -6579,8 +6413,181 @@ function RetinaComparisonPanel({
   const [error, setError] = useState("");
   const refA = useRef();
   const refB = useRef();
-  const processRetinaRotations =
-    processRetinaVariants;
+  const ROTATION_ANGLES = [
+0,
+30,
+60,
+90,
+120,
+150,
+180,
+210,
+240,
+270,
+300,
+330,
+];
+
+const rotateRetinaFile = (file, angle) =>
+new Promise((resolve, reject) => {
+if (angle === 0) {
+resolve(file);
+return;
+}
+const image = new Image();
+const imageUrl =
+  URL.createObjectURL(file);
+
+image.onload = () => {
+  try {
+    /*
+     * On récupère le plus grand carré
+     * centré dans l'image.
+     */
+    const side = Math.min(
+      image.width,
+      image.height
+    );
+
+    const sourceX =
+      (image.width - side) / 2;
+
+    const sourceY =
+      (image.height - side) / 2;
+
+    /*
+     * Le canvas garde toujours la même
+     * dimension que le carré original.
+     * La rétine n'est donc pas réduite.
+     */
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = side;
+    canvas.height = side;
+
+    const context =
+      canvas.getContext("2d");
+
+    if (!context) {
+      throw new Error(
+        "Canvas 2D indisponible."
+      );
+    }
+
+    context.fillStyle = "#000000";
+    context.fillRect(
+      0,
+      0,
+      side,
+      side
+    );
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+
+    context.translate(
+      side / 2,
+      side / 2
+    );
+
+   context.scale(
+flipH ? -1 : 1,
+1
+);
+
+
+    context.drawImage(
+      image,
+      sourceX,
+      sourceY,
+      side,
+      side,
+      -side / 2,
+      -side / 2,
+      side,
+      side
+    );
+
+    canvas.toBlob(
+      blob => {
+        URL.revokeObjectURL(
+          imageUrl
+        );
+
+        if (!blob) {
+          reject(
+            new Error(
+              "Impossible de générer l'image tournée."
+            )
+          );
+          return;
+        }
+
+        resolve(
+          new File(
+            [blob],
+            `rotation_${angle}_${file.name}`,
+            {
+              type: "image/png",
+            }
+          )
+        );
+      },
+      "image/png"
+    );
+  } catch (error) {
+    URL.revokeObjectURL(
+      imageUrl
+    );
+
+    reject(error);
+  }
+};
+
+image.onerror = () => {
+  URL.revokeObjectURL(imageUrl);
+
+  reject(
+    new Error(
+      "Impossible de lire l'image."
+    )
+  );
+};
+
+image.src = imageUrl;
+
+});
+
+
+
+const processRetinaRotations =
+async file => {
+const variants = [];
+
+for (const angle of ROTATION_ANGLES) {
+  const rotatedFile =
+    await rotateRetinaFile(
+      file,
+      angle
+    );
+
+  const biometric =
+    await processBiometric(
+      rotatedFile,
+      "retine"
+    );
+
+  variants.push({
+    angle,
+    biometric,
+  });
+}
+
+return variants;
+
+
+};
 
 const identifyRetinaVariants =
 variants => {
@@ -6619,7 +6626,7 @@ validVector(user.retineVector, 5)
 )
 .map(user => {
 const comparison =
-compareRetinaRotationAware(
+compareRetinaVectors(
 vector,
 user.retineVector
 );
@@ -6690,23 +6697,35 @@ let bestPair = null;
  */
 for (const variantA of variantsA) {
   for (const variantB of variantsB) {
-const comparison =
-compareRetinaRotationAware(
-  variantA.biometric.optimizedArray,
-  variantB.biometric.optimizedArray
+const rawComparison =
+compareRetinaVectors(
+variantA.biometric.optimizedArray,
+variantB.biometric.optimizedArray
 );
+
+/*
+
+* Tolérance spéciale uniquement pour la page
+* de comparaison avec rotations.
+*
+* Cela ne modifie pas les règles générales
+* d'authentification biométrique.
+  */
+  const comparison = {
+  ...rawComparison,
+
+match:
+rawComparison.match ||
+(
+rawComparison.within >= 3 &&
+rawComparison.distance <= 0.80 &&
+rawComparison.similarity >= 52
+),
+};
     if (
       !bestPair ||
-      (
-        comparison.match &&
-        !bestPair.comparison.match
-      ) ||
-      (
-        comparison.match ===
-          bestPair.comparison.match &&
-        comparison.similarity >
-          bestPair.comparison.similarity
-      )
+      comparison.similarity >
+        bestPair.comparison.similarity
     ) {
       bestPair = {
         variantA,
@@ -6950,25 +6969,125 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
 
   const [database, setDatabase] = useState(() => {
     const fallback = [
-{id: "camille",name: "Camille",date: "18/06/2026",authMode: "double",retineVector: [6039.0000,1.8887,1.2728,4.4074,3.4347,],empreinteVector: [2863.0000,2718.0000,145.0000,331.8266,0.5742,1.8469,],hasEmpreinte: true,hasRetine: true,},
-{id: "tidar",name: "Tidar",date: "18/06/2026",authMode: "double",retineVector: [6760.0000,1.5119,1.1628,2.9672,2.7459,],empreinteVector: [3170.0000,3056.0000,114.0000,483.8217,0.5675,1.8372,],hasEmpreinte: true,hasRetine: true,},
-{id: "aminata",name: "Aminata",date: "18/06/2026",authMode: "double",retineVector: [5627.0000,1.5298,1.2298,4.1538,3.0470,],empreinteVector: [3211.0000,3122.0000,89.0000,437.4659,0.4433,1.8417,],hasEmpreinte: true,hasRetine: true,},
-{id: "shanice",name: "Shanice",date: "18/06/2026",authMode: "double",retineVector: [6010.0000,1.5571,1.2258,3.2162,3.0057,],empreinteVector: [4631.0000,4549.0000,82.0000,382.7905,0.6141,1.8998,],hasEmpreinte: true,hasRetine: true,},
-{id: "steven",name: "Steven",date: "19/06/2026",authMode: "double",retineVector: [6668.0000,1.9566,1.2320,4.6842,3.8533,],empreinteVector: [3604.0000,3449.0000,155.0000,374.0529,0.0070,1.9405,],hasEmpreinte: true,hasRetine: true,},
-];
+      { id:"camille", username:"camille", name:"Camille", date:"18/06/2026", authMode:"double", retineVector:[6039.0000,1.8887,1.2728,4.4074,3.4347], empreinteVector:[2863.0000,2718.0000,145.0000,331.8266,0.5742,1.8469], hasEmpreinte:true, hasRetine:true },
+      { id:"tidar", username:"tidar", name:"Tidar", date:"18/06/2026", authMode:"double", retineVector:[6760.0000,1.5119,1.1628,2.9672,2.7459], empreinteVector:[3170.0000,3056.0000,114.0000,483.8217,0.5675,1.8372], hasEmpreinte:true, hasRetine:true },
+      { id:"aminata", username:"aminata", name:"Aminata", date:"18/06/2026", authMode:"double", retineVector:[5627.0000,1.5298,1.2298,4.1538,3.0470], empreinteVector:[3211.0000,3122.0000,89.0000,437.4659,0.4433,1.8417], hasEmpreinte:true, hasRetine:true },
+      { id:"shanice", username:"shanice", name:"Shanice", date:"18/06/2026", authMode:"double", retineVector:[6010.0000,1.5571,1.2258,3.2162,3.0057], empreinteVector:[4631.0000,4549.0000,82.0000,382.7905,0.6141,1.8998], hasEmpreinte:true, hasRetine:true },
+      { id:"steven", username:"steven", name:"Steven", date:"19/06/2026", authMode:"double", retineVector:[6668.0000,1.9566,1.2320,4.6842,3.8533], empreinteVector:[3604.0000,3449.0000,155.0000,374.0529,0.0070,1.9405], hasEmpreinte:true, hasRetine:true },
+    ];
+
     try {
-      const saved = localStorage.getItem("segvision_biometric_database_v3");
-      return saved ? JSON.parse(saved) : fallback;
+      const saved = localStorage.getItem(
+        "segvision_biometric_database_v4"
+      );
+
+      const savedDatabase = saved
+        ? JSON.parse(saved)
+        : [];
+
+      const merged = new Map();
+
+      for (const entry of savedDatabase) {
+        const key =
+          entry.username || entry.id || entry.name;
+        merged.set(key, entry);
+      }
+
+      for (const entry of fallback) {
+        const key = entry.username || entry.id;
+        merged.set(key, {
+          ...(merged.get(key) || {}),
+          ...entry,
+        });
+      }
+
+      return Array.from(merged.values());
     } catch (error) {
       return fallback;
     }
   });
 
+  /*
+   * Synchronise automatiquement la base biométrique
+   * avec les comptes utilisateurs du site.
+   */
+  useEffect(() => {
+    setDatabase(previous => {
+      const entriesByKey = new Map();
+
+      for (const entry of previous) {
+        const key =
+          entry.username || entry.id || entry.name;
+        entriesByKey.set(key, entry);
+      }
+
+      for (const [username, account] of Object.entries(users)) {
+        if (account.role !== "client") continue;
+
+        if (
+          !validVector(account.empreinteVector, 6) &&
+          !validVector(account.retineVector, 5)
+        ) {
+          continue;
+        }
+
+        const existing =
+          entriesByKey.get(username) || {};
+
+        entriesByKey.set(username, {
+          ...existing,
+          id: existing.id || username,
+          username,
+          name: account.name || username,
+          date:
+            account.createdAt ||
+            existing.date ||
+            new Date()
+              .toLocaleString("fr-FR")
+              .slice(0, 16),
+          authMode:
+            account.authMode ||
+            existing.authMode ||
+            "empreinte",
+          empreinteVector:
+            validVector(account.empreinteVector, 6)
+              ? account.empreinteVector
+              : existing.empreinteVector || null,
+          retineVector:
+            validVector(account.retineVector, 5)
+              ? account.retineVector
+              : existing.retineVector || null,
+          hasEmpreinte:
+            validVector(account.empreinteVector, 6),
+          hasRetine:
+            validVector(account.retineVector, 5),
+        });
+      }
+
+      const activeClientUsernames = new Set(
+        Object.entries(users)
+          .filter(([, account]) => account.role === "client")
+          .map(([username]) => username)
+      );
+
+      return Array.from(entriesByKey.values()).filter(entry => {
+        if (!entry.username) return true;
+        return activeClientUsernames.has(entry.username);
+      });
+    });
+  }, [users]);
+
   useEffect(() => {
     try {
-      localStorage.setItem("segvision_biometric_database_v3", JSON.stringify(database));
+      localStorage.setItem(
+        "segvision_biometric_database_v4",
+        JSON.stringify(database)
+      );
     } catch (error) {
-      console.error("Impossible d'enregistrer la base biométrique", error);
+      console.error(
+        "Impossible d'enregistrer la base biométrique",
+        error
+      );
     }
   }, [database]);
 
