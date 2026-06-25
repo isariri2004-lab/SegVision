@@ -1,4 +1,10 @@
 /*
+ * V14 — SEGMENTATION EMPREINTE SANS CADRE
+ * Seule la segmentation d'empreinte est modifiée.
+ * Le cadre est supprimé par marge, masque elliptique et pénalité de bord.
+ */
+
+/*
  * V13 — SEGMENTATION EMPREINTE PAR TEXTURE
  * Seule la segmentation d'empreinte est modifiée.
  * Les gros blocs noirs uniformes sont explicitement rejetés.
@@ -1350,15 +1356,15 @@ drawH
       }
     } else {
       /*
-       * SEGMENTATION EMPREINTE PAR TEXTURE ET CRÊTES
+       * SEGMENTATION EMPREINTE V14
        *
-       * Objectif :
-       * - détecter les vraies crêtes répétitives ;
-       * - ignorer les grosses zones noires uniformes ;
-       * - fonctionner sur fond clair, sombre ou coloré ;
-       * - éviter de segmenter seulement une partie de l'image.
+       * Objectifs :
+       * - détecter les crêtes sur toute l'empreinte ;
+       * - supprimer le cadre rectangulaire ;
+       * - rejeter les grandes masses uniformes ;
+       * - fonctionner sur fond clair, sombre ou coloré.
        *
-       * Seule cette branche empreinte est modifiée.
+       * Seule la branche empreinte est modifiée.
        */
 
       const localSmall = buildLocalStats(
@@ -1366,46 +1372,61 @@ drawH
         4
       );
 
+      const localMedium = buildLocalStats(
+        gray,
+        8
+      );
+
       const localLarge = buildLocalStats(
         gray,
-        12
+        14
       );
 
       /*
-       * Zone utile basée sur la texture locale.
-       * Une empreinte contient beaucoup de variations fines,
-       * contrairement à une grande tache noire uniforme.
+       * Marge de sécurité :
+       * le cadre de l'image est toujours exclu.
+       */
+      const borderMargin = Math.max(
+        18,
+        Math.round(
+          Math.min(W, H) * 0.045
+        )
+      );
+
+      /*
+       * Détection de la zone texturée de l'empreinte.
        */
       const textureValues = [];
 
-      for (let i = 0; i < N; i++) {
-        textureValues.push(
-          localSmall.std[i]
-        );
+      for (let y = borderMargin; y < H - borderMargin; y++) {
+        for (let x = borderMargin; x < W - borderMargin; x++) {
+          textureValues.push(
+            localSmall.std[y * W + x]
+          );
+        }
       }
 
       const textureThreshold = Math.max(
         0.010,
         percentile(
           textureValues,
-          0.32
+          0.30
         )
       );
 
       const roiCandidate =
         new Uint8Array(N);
 
-      for (let y = 6; y < H - 6; y++) {
-        for (let x = 6; x < W - 6; x++) {
+      for (let y = borderMargin; y < H - borderMargin; y++) {
+        for (let x = borderMargin; x < W - borderMargin; x++) {
           const i = y * W + x;
 
-          /*
-           * On conserve uniquement les zones présentant
-           * une vraie texture locale.
-           */
+          const texture =
+            0.65 * localSmall.std[i] +
+            0.35 * localMedium.std[i];
+
           roiCandidate[i] =
-            localSmall.std[i] >=
-              textureThreshold
+            texture >= textureThreshold
               ? 1
               : 0;
         }
@@ -1418,18 +1439,51 @@ drawH
 
       roi = removeSmallComponents(
         roi,
-        80
+        120
       );
 
       /*
-       * Repli sécurisé si l'image est peu contrastée.
+       * Repli si l'image possède peu de texture.
        */
       if (countMask(roi) < N * 0.08) {
         roi = new Uint8Array(N);
 
-        for (let y = 8; y < H - 8; y++) {
-          for (let x = 8; x < W - 8; x++) {
+        for (let y = borderMargin; y < H - borderMargin; y++) {
+          for (let x = borderMargin; x < W - borderMargin; x++) {
             roi[y * W + x] = 1;
+          }
+        }
+      }
+
+      /*
+       * Masque elliptique souple :
+       * il enlève les coins et le cadre sans couper
+       * la zone centrale de l'empreinte.
+       */
+      const centerX = W / 2;
+      const centerY = H / 2;
+      const radiusX =
+        W / 2 - borderMargin;
+      const radiusY =
+        H / 2 - borderMargin;
+
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x;
+
+          const nx =
+            (x - centerX) /
+            Math.max(1, radiusX);
+
+          const ny =
+            (y - centerY) /
+            Math.max(1, radiusY);
+
+          const insideEllipse =
+            nx * nx + ny * ny <= 1.08;
+
+          if (!insideEllipse) {
+            roi[i] = 0;
           }
         }
       }
@@ -1441,17 +1495,6 @@ drawH
         countMask(roi)
       );
 
-      /*
-       * Bande passante multi-échelle :
-       * met en évidence les lignes fines répétitives
-       * sans conserver les grandes masses uniformes.
-       */
-      const bandPassDark =
-        new Float32Array(N);
-
-      const bandPassLight =
-        new Float32Array(N);
-
       const invertedGray =
         new Float32Array(N);
 
@@ -1460,6 +1503,16 @@ drawH
           1 - gray[i];
       }
 
+      /*
+       * Réponse multi-échelle aux crêtes.
+       * On calcule les deux polarités.
+       */
+      const darkBand =
+        new Float32Array(N);
+
+      const lightBand =
+        new Float32Array(N);
+
       for (
         const sigma of [
           0.55,
@@ -1467,7 +1520,8 @@ drawH
           1.05,
           1.35,
           1.7,
-          2.1,
+          2.15,
+          2.7,
         ]
       ) {
         const darkFine = gauss(
@@ -1477,7 +1531,7 @@ drawH
 
         const darkCoarse = gauss(
           invertedGray,
-          sigma * 2.6
+          sigma * 2.5
         );
 
         const lightFine = gauss(
@@ -1487,49 +1541,77 @@ drawH
 
         const lightCoarse = gauss(
           gray,
-          sigma * 2.6
+          sigma * 2.5
         );
 
         for (let i = 0; i < N; i++) {
           if (!roi[i]) continue;
 
-          const darkResponse =
-            Math.max(
-              0,
-              darkFine[i] -
-                darkCoarse[i]
-            );
+          const darkResponse = Math.max(
+            0,
+            darkFine[i] -
+              darkCoarse[i]
+          );
 
-          const lightResponse =
-            Math.max(
-              0,
-              lightFine[i] -
-                lightCoarse[i]
-            );
+          const lightResponse = Math.max(
+            0,
+            lightFine[i] -
+              lightCoarse[i]
+          );
 
           if (
             darkResponse >
-            bandPassDark[i]
+            darkBand[i]
           ) {
-            bandPassDark[i] =
+            darkBand[i] =
               darkResponse;
           }
 
           if (
             lightResponse >
-            bandPassLight[i]
+            lightBand[i]
           ) {
-            bandPassLight[i] =
+            lightBand[i] =
               lightResponse;
           }
         }
       }
 
-      /*
-       * Contraste local normalisé.
-       * Une vraie crête doit être différente de son voisinage,
-       * mais aussi se trouver dans une zone texturée.
-       */
+      const darkValues = [];
+      const lightValues = [];
+
+      for (let i = 0; i < N; i++) {
+        if (!roi[i]) continue;
+
+        if (darkBand[i] > 0) {
+          darkValues.push(
+            darkBand[i]
+          );
+        }
+
+        if (lightBand[i] > 0) {
+          lightValues.push(
+            lightBand[i]
+          );
+        }
+      }
+
+      const darkScale = Math.max(
+        1e-5,
+        percentile(
+          darkValues,
+          0.965
+        )
+      );
+
+      const lightScale = Math.max(
+        1e-5,
+        percentile(
+          lightValues,
+          0.965
+        )
+      );
+
       const darkLocal =
         new Float32Array(N);
 
@@ -1543,7 +1625,7 @@ drawH
         1e-5,
         percentile(
           textureValues,
-          0.92
+          0.90
         )
       );
 
@@ -1567,71 +1649,32 @@ drawH
           localLarge.std[i]
         );
 
-        const darkZ =
-          (
-            reference -
-            gray[i]
-          ) / spread;
+        darkLocal[i] = Math.min(
+          1,
+          Math.max(
+            0,
+            (
+              reference -
+              gray[i]
+            ) /
+            spread /
+            1.8
+          )
+        );
 
-        const lightZ =
-          (
-            gray[i] -
-            reference
-          ) / spread;
-
-        darkLocal[i] =
-          Math.min(
-            1,
-            Math.max(
-              0,
-              darkZ / 2.0
-            )
-          ) * texture;
-
-        lightLocal[i] =
-          Math.min(
-            1,
-            Math.max(
-              0,
-              lightZ / 2.0
-            )
-          ) * texture;
+        lightLocal[i] = Math.min(
+          1,
+          Math.max(
+            0,
+            (
+              gray[i] -
+              reference
+            ) /
+            spread /
+            1.8
+          )
+        );
       }
-
-      const darkBandValues = [];
-      const lightBandValues = [];
-
-      for (let i = 0; i < N; i++) {
-        if (!roi[i]) continue;
-
-        if (bandPassDark[i] > 0) {
-          darkBandValues.push(
-            bandPassDark[i]
-          );
-        }
-
-        if (bandPassLight[i] > 0) {
-          lightBandValues.push(
-            bandPassLight[i]
-          );
-        }
-      }
-
-      const darkBandScale = Math.max(
-        1e-5,
-        percentile(
-          darkBandValues,
-          0.96
-        )
-      );
-
-      const lightBandScale = Math.max(
-        1e-5,
-        percentile(
-          lightBandValues,
-          0.96
-        )
-      );
 
       const buildMask = (
         localScore,
@@ -1653,19 +1696,15 @@ drawH
                 bandScale
             );
 
-          /*
-           * Le score dépend surtout de la bande passante,
-           * ce qui élimine les grandes zones noires pleines.
-           */
           score[i] =
             (
-              0.35 *
+              0.30 *
                 localScore[i] +
-              0.65 *
+              0.70 *
                 normalizedBand
             ) *
             Math.max(
-              0.25,
+              0.20,
               textureWeight[i]
             );
 
@@ -1676,12 +1715,12 @@ drawH
 
         let high = percentile(
           values,
-          0.68
+          0.65
         );
 
         let low = percentile(
           values,
-          0.46
+          0.42
         );
 
         let mask = hysteresis(
@@ -1695,15 +1734,15 @@ drawH
           countMask(mask) /
           roiArea;
 
-        if (density < 0.07) {
+        if (density < 0.09) {
           high = percentile(
             values,
-            0.60
+            0.56
           );
 
           low = percentile(
             values,
-            0.38
+            0.34
           );
 
           mask = hysteresis(
@@ -1712,15 +1751,15 @@ drawH
             low,
             high
           );
-        } else if (density > 0.34) {
+        } else if (density > 0.30) {
           high = percentile(
             values,
-            0.76
+            0.73
           );
 
           low = percentile(
             values,
-            0.57
+            0.53
           );
 
           mask = hysteresis(
@@ -1732,8 +1771,8 @@ drawH
         }
 
         /*
-         * Fermeture légère uniquement.
-         * On évite de remplir les espaces entre les crêtes.
+         * Nettoyage léger :
+         * les crêtes restent séparées.
          */
         mask = binaryClose(
           mask,
@@ -1742,14 +1781,26 @@ drawH
 
         mask = removeSmallComponents(
           mask,
-          4
+          5
         );
 
-        for (let i = 0; i < N; i++) {
-          mask[i] =
-            mask[i] && roi[i]
-              ? 1
-              : 0;
+        /*
+         * Suppression définitive du cadre.
+         */
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            const i = y * W + x;
+
+            if (
+              x < borderMargin ||
+              x >= W - borderMargin ||
+              y < borderMargin ||
+              y >= H - borderMargin ||
+              !roi[i]
+            ) {
+              mask[i] = 0;
+            }
+          }
         }
 
         return mask;
@@ -1758,22 +1809,21 @@ drawH
       const darkMask =
         buildMask(
           darkLocal,
-          bandPassDark,
-          darkBandScale
+          darkBand,
+          darkScale
         );
 
       const lightMask =
         buildMask(
           lightLocal,
-          bandPassLight,
-          lightBandScale
+          lightBand,
+          lightScale
         );
 
       /*
-       * Évaluation de la qualité d'un masque :
-       * - couverture verticale et horizontale ;
-       * - densité compatible avec des crêtes ;
-       * - pénalité pour les gros blocs pleins.
+       * Évaluation du masque.
+       * Un cadre donne de longues lignes droites
+       * proches des bords : forte pénalité.
        */
       const evaluateMask = mask => {
         const count =
@@ -1784,45 +1834,48 @@ drawH
 
         let rowsWithData = 0;
         let colsWithData = 0;
-        let maxRowDensity = 0;
-        let maxColDensity = 0;
+        let edgePixels = 0;
 
         for (let y = 0; y < H; y++) {
           let rowCount = 0;
 
           for (let x = 0; x < W; x++) {
-            if (mask[y * W + x]) {
-              rowCount++;
+            if (!mask[y * W + x]) {
+              continue;
+            }
+
+            rowCount++;
+
+            if (
+              x < borderMargin * 1.5 ||
+              x >= W -
+                borderMargin * 1.5 ||
+              y < borderMargin * 1.5 ||
+              y >= H -
+                borderMargin * 1.5
+            ) {
+              edgePixels++;
             }
           }
 
           if (rowCount > 0) {
             rowsWithData++;
           }
-
-          maxRowDensity = Math.max(
-            maxRowDensity,
-            rowCount / W
-          );
         }
 
         for (let x = 0; x < W; x++) {
-          let colCount = 0;
+          let found = false;
 
           for (let y = 0; y < H; y++) {
             if (mask[y * W + x]) {
-              colCount++;
+              found = true;
+              break;
             }
           }
 
-          if (colCount > 0) {
+          if (found) {
             colsWithData++;
           }
-
-          maxColDensity = Math.max(
-            maxColDensity,
-            colCount / H
-          );
         }
 
         const coverage =
@@ -1837,24 +1890,17 @@ drawH
               0.16
           );
 
-        /*
-         * Un gros bloc noir donne des lignes ou colonnes
-         * presque entièrement remplies : forte pénalité.
-         */
-        const blockPenalty =
+        const edgePenalty =
+          edgePixels /
           Math.max(
-            0,
-            maxRowDensity - 0.55
-          ) +
-          Math.max(
-            0,
-            maxColDensity - 0.55
+            1,
+            count
           );
 
         return (
-          coverage * 2.2 -
-          densityPenalty * 2.5 -
-          blockPenalty * 3.0
+          coverage * 2.4 -
+          densityPenalty * 2.2 -
+          edgePenalty * 3.5
         );
       };
 
