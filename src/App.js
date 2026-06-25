@@ -1,29 +1,4 @@
 /*
- * V19 — SANS UTILISATEURS PRÉCHARGÉS
- * - Camille, Aminata, Tidar, Shanice et Steven ont été supprimés
- * - Seul le compte administrateur Ismael reste prédéfini
- * - Les utilisateurs créés manuellement sont sauvegardés dans localStorage
- * - Nouvelle base locale V19 pour repartir proprement
- */
-
-/*
- * V18 — DOUBLE BASE EMPREINTES
- * - Aucune modification de la segmentation
- * - Chaque compte possède le vecteur de la nouvelle segmentation
- * - Les anciens vecteurs sont conservés comme gabarits de compatibilité
- * - L'authentification teste les deux gabarits sans baisser les seuils
- * - La meilleure correspondance stricte est retenue
- */
-
-/*
- * V17 — BASE EMPREINTES FORCÉE
- * - Aucune modification de la segmentation
- * - Nouveaux vecteurs empreinte conservés
- * - Nouvelle clé de base locale pour supprimer les anciens vecteurs
- * - Suppression des doublons historiques portant le même nom
- */
-
-/*
  * V15 — SEGMENTATION EMPREINTE MAXIMALE
  * Seule la segmentation d'empreinte est modifiée.
  * Normalisation locale, cohérence directionnelle,
@@ -96,18 +71,157 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 // USERS
 // ═══════════════════════════════════════════════════════════════════════════════
 const INITIAL_USERS = {
-  Ismael: {
-    username: "Ismael",
-    password: "123456",
-    role: "Administrateur",
-    name: "Administrateur SegVision",
-    email: "",
-    validated: true,
-    pendingValidation: false,
-    disabled: false,
-  },
-};
+  Ismael:    { password: "123456", role: "Administrateur", name: "Administrateur SegVision",       validated: true },
+  camille: {
+username: "camille",
+password: "Camille123",
+role: "client",
+name: "Camille",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "18/06/2026",
+retineVector: [
+6050.0000,
+1.7910,
+1.2351,
+4.3913,
+3.3588,
+],
+empreinteVector: [
+2863.0000,
+2718.0000,
+145.0000,
+331.8266,
+0.5742,
+1.8469,
+],
+},
 
+tidar: {
+username: "tidar",
+password: "Tidar123",
+role: "client",
+name: "Tidar",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "18/06/2026",
+retineVector: [
+6744.0000,
+1.5601,
+1.1767,
+2.9420,
+2.5701,
+],
+empreinteVector: [
+3170.0000,
+3056.0000,
+114.0000,
+483.8217,
+0.5675,
+1.8372,
+],
+},
+
+aminata: {
+username: "aminata",
+password: "Aminata123",
+role: "client",
+name: "Aminata",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "18/06/2026",
+retineVector: [
+5772.0000,
+1.5862,
+1.2659,
+4.0000,
+3.0472,
+],
+empreinteVector: [
+3211.0000,
+3122.0000,
+89.0000,
+437.4659,
+0.4433,
+1.8417,
+],
+},
+
+shanice: {
+username: "shanice",
+password: "Shanice123",
+role: "client",
+name: "Shanice",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "18/06/2026",
+retineVector: [
+6242.0000,
+1.4898,
+1.2481,
+3.6829,
+3.0797,
+],
+empreinteVector: [
+4631.0000,
+4549.0000,
+82.0000,
+382.7905,
+0.6141,
+1.8998,
+],
+},
+
+steven: {
+username: "steven",
+password: "Steven123",
+role: "client",
+name: "Steven",
+email: "",
+validated: true,
+pendingValidation: false,
+disabled: false,
+authMode: "double",
+hasEmpreinte: true,
+hasRetine: true,
+createdAt: "19/06/2026",
+retineVector: [
+6690.0000,
+1.9072,
+1.2636,
+4.7000,
+4.0632,
+],
+empreinteVector: [
+3604.0000,
+3449.0000,
+155.0000,
+374.0529,
+0.0070,
+1.9405,
+],
+},
+};
 // ═══════════════════════════════════════════════════════════════════════════════
 // PALETTE
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -478,65 +592,6 @@ function compareFingerprintVectors(a, b) {
   const match = exact || (within >= 5 && distance <= 0.85 && similarity >= 50);
 
   return { match, similarity, distance, within, deltas, exact };
-}
-
-function compareFingerprintTemplates(
-  scannedVector,
-  primaryVector,
-  legacyVector = null
-) {
-  const templates = [
-    {
-      type: "nouvelle segmentation",
-      vector: primaryVector,
-    },
-    {
-      type: "ancienne segmentation",
-      vector: legacyVector,
-    },
-  ].filter(template =>
-    validVector(template.vector, 6)
-  );
-
-  let best = null;
-
-  for (const template of templates) {
-    const comparison =
-      compareFingerprintVectors(
-        scannedVector,
-        template.vector
-      );
-
-    const candidate = {
-      ...comparison,
-      templateType: template.type,
-    };
-
-    if (
-      !best ||
-      (
-        candidate.match &&
-        !best.match
-      ) ||
-      (
-        candidate.match === best.match &&
-        candidate.similarity >
-          best.similarity
-      )
-    ) {
-      best = candidate;
-    }
-  }
-
-  return best || {
-    match: false,
-    similarity: 0,
-    distance: Infinity,
-    within: 0,
-    deltas: [],
-    exact: false,
-    templateType: null,
-  };
 }
 
 function vectorsMatch(a, b) {
@@ -2986,10 +3041,9 @@ if (u.role === "client") {
       );
 
     const empreinteComparison =
-      compareFingerprintTemplates(
+      compareFingerprintVectors(
         empreinteResult.optimizedArray,
-        u.empreinteVector,
-        u.empreinteLegacyVector
+        u.empreinteVector
       );
 
    let retineComparison = null;
@@ -4893,7 +4947,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   ] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_authenticated_users_v19"
+        "segvision_authenticated_users_v9"
       );
 
       return saved
@@ -4907,7 +4961,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_authenticated_users_v19",
+        "segvision_authenticated_users_v9",
         JSON.stringify(authenticatedRecords)
       );
     } catch (error) {
@@ -4998,10 +5052,9 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 
       const results = database.map(entry => {
         const empreinteComparison =
-          compareFingerprintTemplates(
+          compareFingerprintVectors(
             empreinteRes.optimizedArray,
-            entry.empreinteVector,
-            entry.empreinteLegacyVector
+            entry.empreinteVector
           );
 
         const empreinteMatch =
@@ -7698,7 +7751,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   const [database, setDatabase] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_biometric_database_v19"
+        "segvision_biometric_database_v5"
       );
 
       return saved
@@ -7721,12 +7774,10 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
    */
   useEffect(() => {
     setDatabase(previous => {
-      /*
-       * Les comptes sont la source officielle.
-       * Toute ancienne entrée portant le même nom ou identifiant
-       * est supprimée afin d'éviter qu'un ancien vecteur reste
-       * utilisé pendant l'authentification.
-       */
+      const manualEntries = previous.filter(
+        entry => !entry.username
+      );
+
       const accountEntries = Object.entries(users)
         .filter(([, account]) =>
           account.role === "client" &&
@@ -7752,13 +7803,6 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
             validVector(account.empreinteVector, 6)
               ? account.empreinteVector.map(Number)
               : null,
-          empreinteLegacyVector:
-            validVector(
-              account.empreinteLegacyVector,
-              6
-            )
-              ? account.empreinteLegacyVector.map(Number)
-              : null,
           retineVector:
             validVector(account.retineVector, 5)
               ? account.retineVector.map(Number)
@@ -7769,46 +7813,9 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
             validVector(account.retineVector, 5),
         }));
 
-      const officialKeys = new Set(
-        accountEntries.flatMap(entry => [
-          String(entry.username || "")
-            .trim()
-            .toLowerCase(),
-          String(entry.id || "")
-            .trim()
-            .toLowerCase(),
-          String(entry.name || "")
-            .trim()
-            .toLowerCase(),
-        ])
-      );
-
-      /*
-       * On conserve seulement les enrôlements manuels qui
-       * ne correspondent à aucun compte officiel.
-       */
-      const manualEntries = previous.filter(entry => {
-        if (entry.username) return false;
-
-        const entryKeys = [
-          entry.id,
-          entry.name,
-        ]
-          .map(value =>
-            String(value || "")
-              .trim()
-              .toLowerCase()
-          )
-          .filter(Boolean);
-
-        return !entryKeys.some(key =>
-          officialKeys.has(key)
-        );
-      });
-
       return [
-        ...accountEntries,
         ...manualEntries,
+        ...accountEntries,
       ];
     });
   }, [users]);
@@ -7816,7 +7823,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_biometric_database_v19",
+        "segvision_biometric_database_v5",
         JSON.stringify(database)
       );
     } catch (error) {
@@ -8138,7 +8145,7 @@ const [user, setUser] = useState(null);
 const [users, setUsers] = useState(() => {
 try {
 const saved = localStorage.getItem(
-"segvision_users_v19"
+"segvision_users"
 );
 
 const savedUsers = saved
@@ -8165,7 +8172,7 @@ return {
 
   useEffect(() => {
     try {
-      localStorage.setItem("segvision_users_v19", JSON.stringify(users));
+      localStorage.setItem("segvision_users", JSON.stringify(users));
     } catch (error) {
       console.error("Impossible d'enregistrer les comptes", error);
     }
