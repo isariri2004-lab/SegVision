@@ -1,4 +1,12 @@
 /*
+ * V10 — CORRECTION COMPARAISON DES ROTATIONS
+ * - Suppression de l'ancienne fonction locale utilisant flipH sans le définir
+ * - Réutilisation du moteur global rotateRetinaForLogin
+ * - 12 rotations normales + 12 rotations miroir
+ * - Authentifications cumulées conservées
+ */
+
+/*
  * V9 — AUTHENTIFICATIONS CUMULÉES
  * - Aminata reste authentifiée après l'authentification de Shanice
  * - Chaque nouvel utilisateur reconnu s'ajoute à la liste verte
@@ -17,7 +25,7 @@
  */
 
 /*
- * SEGvision — AUTHENTIFICATIONS CUMULÉES V9
+ * SEGvision — AUTHENTIFICATIONS CUMULÉES V10
  * - Liste complète conservée à droite
  * - Un seul utilisateur marqué "Authentifié"
  * - 12 rotations + miroir horizontal
@@ -5039,7 +5047,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
           marginBottom: 12,
         }}
       >
-        Résultats — authentifications cumulées V9
+        Résultats — authentifications cumulées V10
       </div>
 
       <div
@@ -6614,181 +6622,54 @@ function RetinaComparisonPanel({
   const [error, setError] = useState("");
   const refA = useRef();
   const refB = useRef();
-  const ROTATION_ANGLES = [
-0,
-30,
-60,
-90,
-120,
-150,
-180,
-210,
-240,
-270,
-300,
-330,
-];
+  /*
+   * La page de comparaison réutilise exactement
+   * le même moteur de rotation que la connexion.
+   * Cela évite les anciennes fonctions locales cassées.
+   */
+  const ROTATION_ANGLES =
+    LOGIN_RETINA_ANGLES;
 
-const rotateRetinaFile = (file, angle) =>
-new Promise((resolve, reject) => {
-if (angle === 0) {
-resolve(file);
-return;
-}
-const image = new Image();
-const imageUrl =
-  URL.createObjectURL(file);
-
-image.onload = () => {
-  try {
-    /*
-     * On récupère le plus grand carré
-     * centré dans l'image.
-     */
-    const side = Math.min(
-      image.width,
-      image.height
-    );
-
-    const sourceX =
-      (image.width - side) / 2;
-
-    const sourceY =
-      (image.height - side) / 2;
-
-    /*
-     * Le canvas garde toujours la même
-     * dimension que le carré original.
-     * La rétine n'est donc pas réduite.
-     */
-    const canvas =
-      document.createElement("canvas");
-
-    canvas.width = side;
-    canvas.height = side;
-
-    const context =
-      canvas.getContext("2d");
-
-    if (!context) {
-      throw new Error(
-        "Canvas 2D indisponible."
-      );
-    }
-
-    context.fillStyle = "#000000";
-    context.fillRect(
-      0,
-      0,
-      side,
-      side
-    );
-
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-
-    context.translate(
-      side / 2,
-      side / 2
-    );
-
-   context.scale(
-flipH ? -1 : 1,
-1
-);
-
-
-    context.drawImage(
-      image,
-      sourceX,
-      sourceY,
-      side,
-      side,
-      -side / 2,
-      -side / 2,
-      side,
-      side
-    );
-
-    canvas.toBlob(
-      blob => {
-        URL.revokeObjectURL(
-          imageUrl
-        );
-
-        if (!blob) {
-          reject(
-            new Error(
-              "Impossible de générer l'image tournée."
-            )
-          );
-          return;
-        }
-
-        resolve(
-          new File(
-            [blob],
-            `rotation_${angle}_${file.name}`,
-            {
-              type: "image/png",
-            }
-          )
-        );
-      },
-      "image/png"
-    );
-  } catch (error) {
-    URL.revokeObjectURL(
-      imageUrl
-    );
-
-    reject(error);
-  }
-};
-
-image.onerror = () => {
-  URL.revokeObjectURL(imageUrl);
-
-  reject(
-    new Error(
-      "Impossible de lire l'image."
-    )
-  );
-};
-
-image.src = imageUrl;
-
-});
-
-
-
-const processRetinaRotations =
-async file => {
-const variants = [];
-
-for (const angle of ROTATION_ANGLES) {
-  const rotatedFile =
-    await rotateRetinaFile(
-      file,
-      angle
-    );
-
-  const biometric =
-    await processBiometric(
-      rotatedFile,
-      "retine"
-    );
-
-  variants.push({
+  const rotateRetinaFile = (
+    file,
     angle,
-    biometric,
-  });
-}
+    flipH = false
+  ) =>
+    rotateRetinaForLogin(
+      file,
+      angle,
+      flipH
+    );
 
-return variants;
+  const processRetinaRotations =
+    async file => {
+      const variants = [];
 
+      for (const flipH of [false, true]) {
+        for (const angle of ROTATION_ANGLES) {
+          const transformedFile =
+            await rotateRetinaFile(
+              file,
+              angle,
+              flipH
+            );
 
-};
+          const biometric =
+            await processBiometric(
+              transformedFile,
+              "retine"
+            );
+
+          variants.push({
+            angle,
+            flipH,
+            biometric,
+          });
+        }
+      }
+
+      return variants;
+    };
 
 const identifyRetinaVariants =
 variants => {
@@ -6798,6 +6679,7 @@ variants.map(variant => ({
 variant.biometric.optimizedArray
 ),
 angle: variant.angle,
+flipH: variant.flipH,
 }));
 
 
