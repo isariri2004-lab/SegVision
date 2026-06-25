@@ -1,4 +1,12 @@
 /*
+ * V17 — BASE EMPREINTES FORCÉE
+ * - Aucune modification de la segmentation
+ * - Nouveaux vecteurs empreinte conservés
+ * - Nouvelle clé de base locale pour supprimer les anciens vecteurs
+ * - Suppression des doublons historiques portant le même nom
+ */
+
+/*
  * V15 — SEGMENTATION EMPREINTE MAXIMALE
  * Seule la segmentation d'empreinte est modifiée.
  * Normalisation locale, cohérence directionnelle,
@@ -4947,7 +4955,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   ] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_authenticated_users_v9"
+        "segvision_authenticated_users_v17"
       );
 
       return saved
@@ -4961,7 +4969,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_authenticated_users_v9",
+        "segvision_authenticated_users_v17",
         JSON.stringify(authenticatedRecords)
       );
     } catch (error) {
@@ -7751,7 +7759,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   const [database, setDatabase] = useState(() => {
     try {
       const saved = localStorage.getItem(
-        "segvision_biometric_database_v5"
+        "segvision_biometric_database_v17"
       );
 
       return saved
@@ -7774,10 +7782,12 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
    */
   useEffect(() => {
     setDatabase(previous => {
-      const manualEntries = previous.filter(
-        entry => !entry.username
-      );
-
+      /*
+       * Les comptes sont la source officielle.
+       * Toute ancienne entrée portant le même nom ou identifiant
+       * est supprimée afin d'éviter qu'un ancien vecteur reste
+       * utilisé pendant l'authentification.
+       */
       const accountEntries = Object.entries(users)
         .filter(([, account]) =>
           account.role === "client" &&
@@ -7813,9 +7823,46 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
             validVector(account.retineVector, 5),
         }));
 
+      const officialKeys = new Set(
+        accountEntries.flatMap(entry => [
+          String(entry.username || "")
+            .trim()
+            .toLowerCase(),
+          String(entry.id || "")
+            .trim()
+            .toLowerCase(),
+          String(entry.name || "")
+            .trim()
+            .toLowerCase(),
+        ])
+      );
+
+      /*
+       * On conserve seulement les enrôlements manuels qui
+       * ne correspondent à aucun compte officiel.
+       */
+      const manualEntries = previous.filter(entry => {
+        if (entry.username) return false;
+
+        const entryKeys = [
+          entry.id,
+          entry.name,
+        ]
+          .map(value =>
+            String(value || "")
+              .trim()
+              .toLowerCase()
+          )
+          .filter(Boolean);
+
+        return !entryKeys.some(key =>
+          officialKeys.has(key)
+        );
+      });
+
       return [
-        ...manualEntries,
         ...accountEntries,
+        ...manualEntries,
       ];
     });
   }, [users]);
@@ -7823,7 +7870,7 @@ function AdministrateurApp({ user, users, onCreateUser, onUpdateUser, onDeleteUs
   useEffect(() => {
     try {
       localStorage.setItem(
-        "segvision_biometric_database_v5",
+        "segvision_biometric_database_v17",
         JSON.stringify(database)
       );
     } catch (error) {
