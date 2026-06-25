@@ -4286,6 +4286,10 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
             entry.empreinteVector
           );
 
+        const empreinteMatch =
+          empreinteComparison.match ||
+          empreinteComparison.similarity >= 70;
+
         let bestRetina = null;
 
         if (authMode === "double") {
@@ -4300,14 +4304,7 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
               ...rawComparison,
               match:
                 rawComparison.match ||
-                (
-                  rawComparison.similarity >= 52 &&
-                  rawComparison.distance <= 0.85 &&
-                  (
-                    rawComparison.within >= 3 ||
-                    rawComparison.similarity >= 60
-                  )
-                ),
+                rawComparison.similarity >= 58,
             };
 
             const candidate = {
@@ -4336,11 +4333,13 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
         const retineComparison =
           bestRetina?.comparison || null;
 
-        const globalMatch =
+        const retineMatch =
           authMode === "double"
-            ? empreinteComparison.match &&
-              Boolean(retineComparison?.match)
-            : empreinteComparison.match;
+            ? Boolean(retineComparison?.match)
+            : true;
+
+        const candidateMatch =
+          empreinteMatch && retineMatch;
 
         const globalSimilarity =
           authMode === "double"
@@ -4352,6 +4351,10 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
 
         return {
           ...entry,
+          identityKey:
+            entry.username ||
+            entry.id ||
+            entry.name,
           empreinteDist:
             empreinteComparison.distance,
           retineDist:
@@ -4360,80 +4363,78 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
             empreinteComparison.similarity,
           retineSimilarity:
             retineComparison?.similarity ?? null,
-          empreinteMatch:
-            empreinteComparison.match,
-          retineMatch:
-            retineComparison?.match ?? false,
+          empreinteMatch,
+          retineMatch,
           retinaAngle:
             bestRetina?.angle ?? null,
           retinaFlipH:
             bestRetina?.flipH ?? false,
-          globalMatch,
+          candidateMatch,
+          globalMatch: false,
           globalSimilarity,
           globalScore: 100 - globalSimilarity,
         };
       });
 
       results.sort((a, b) => {
-        if (a.globalMatch !== b.globalMatch) {
-          return Number(b.globalMatch) -
-            Number(a.globalMatch);
+        if (a.candidateMatch !== b.candidateMatch) {
+          return Number(b.candidateMatch) -
+            Number(a.candidateMatch);
         }
 
         return b.globalSimilarity -
           a.globalSimilarity;
       });
 
-      const bestMatch = results.find(
-        result => result.globalMatch
-      );
+      const bestMatch =
+        results.find(
+          result => result.candidateMatch
+        ) || null;
 
-      const bestResult = bestMatch || results[0];
+      const finalResults = results.map(result => ({
+        ...result,
+        globalMatch:
+          Boolean(bestMatch) &&
+          result.identityKey ===
+            bestMatch.identityKey,
+      }));
+
+      const authenticatedUser =
+        finalResults.find(
+          result => result.globalMatch
+        ) || null;
 
       setAccessPopup(
-        bestMatch
+        authenticatedUser
           ? {
               status: "autorise",
-              name: bestMatch.name,
+              name: authenticatedUser.name,
               similarity:
-                bestMatch.globalSimilarity,
+                authenticatedUser.globalSimilarity,
             }
           : {
               status: "refuse",
               name: null,
               similarity:
-                bestResult?.globalSimilarity || 0,
+                finalResults[0]
+                  ?.globalSimilarity || 0,
             }
       );
 
       setAuthResult({
-        results,
-        authenticatedUser: bestMatch
-          ? {
-              id: bestMatch.id,
-              name: bestMatch.name,
-              globalSimilarity:
-                bestMatch.globalSimilarity,
-              empreinteSimilarity:
-                bestMatch.empreinteSimilarity,
-              retineSimilarity:
-                bestMatch.retineSimilarity,
-              retinaAngle:
-                bestMatch.retinaAngle,
-              retinaFlipH:
-                bestMatch.retinaFlipH,
-            }
-          : null,
+        results: finalResults,
+        authenticatedUser,
         empreinteVec:
           empreinteRes.optimizedArray,
         retineVec:
-          bestResult?.retinaAngle !== null
+          authenticatedUser?.retinaAngle !== null &&
+          authenticatedUser?.retinaAngle !== undefined
             ? retinaVariants.find(
                 variant =>
                   variant.angle ===
-                    bestResult.retinaAngle &&
+                    authenticatedUser.retinaAngle &&
                   variant.flipH ===
-                    bestResult.retinaFlipH
+                    authenticatedUser.retinaFlipH
               )?.biometric.optimizedArray || null
             : null,
       });
@@ -4906,96 +4907,6 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
           Les résultats apparaîtront ici après
           l'authentification.
         </div>
-      ) : authResult.authenticatedUser ? (
-        <div
-          style={{
-            border: `2px solid ${C.success}`,
-            borderRadius: 12,
-            padding: 20,
-            background: C.successBg,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 34,
-              marginBottom: 10,
-              textAlign: "center",
-            }}
-          >
-            ✅
-          </div>
-
-          <div
-            style={{
-              fontSize: 21,
-              fontWeight: 900,
-              color: C.success,
-              textAlign: "center",
-              marginBottom: 8,
-            }}
-          >
-            Utilisateur authentifié
-          </div>
-
-          <div
-            style={{
-              fontSize: 18,
-              fontWeight: 800,
-              color: C.text,
-              textAlign: "center",
-              marginBottom: 14,
-            }}
-          >
-            {authResult.authenticatedUser.name}
-          </div>
-
-          <div
-            style={{
-              background: C.surface,
-              border: `1px solid ${C.success}35`,
-              borderRadius: 10,
-              padding: 14,
-              fontSize: 13,
-              color: C.sub,
-              lineHeight: 1.8,
-            }}
-          >
-            <div>
-              Score global :{" "}
-              <strong style={{ color: C.success }}>
-                {authResult.authenticatedUser.globalSimilarity.toFixed(1)}%
-              </strong>
-            </div>
-
-            <div>
-              Empreinte :{" "}
-              <strong style={{ color: C.success }}>
-                {authResult.authenticatedUser.empreinteSimilarity.toFixed(1)}%
-              </strong>
-            </div>
-
-            {authResult.authenticatedUser.retineSimilarity !== null && (
-              <div>
-                Rétine :{" "}
-                <strong style={{ color: C.success }}>
-                  {authResult.authenticatedUser.retineSimilarity.toFixed(1)}%
-                </strong>
-              </div>
-            )}
-
-            {authResult.authenticatedUser.retinaAngle !== null && (
-              <div>
-                Orientation retenue :{" "}
-                <strong>
-                  {authResult.authenticatedUser.retinaAngle}°
-                  {authResult.authenticatedUser.retinaFlipH
-                    ? " avec miroir horizontal"
-                    : ""}
-                </strong>
-              </div>
-            )}
-          </div>
-        </div>
       ) : (
         <>
           {authResult.results.map((result, index) => {
@@ -5047,8 +4958,8 @@ function BiometricDB({ database, setDatabase, accentColor=C.primary }) {
                     )}
                   >
                     {result.globalMatch
-                      ? "✓ Identifié"
-                      : "✗ Non identifié"}
+                      ? "✓ Authentifié"
+                      : "✗ Non authentifié"}
                   </span>
                 </div>
 
